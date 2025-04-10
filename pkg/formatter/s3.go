@@ -2,8 +2,10 @@ package formatter
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/younsl/idled/internal/models"
@@ -13,7 +15,7 @@ import (
 // PrintBucketsTable prints S3 bucket information as a table
 func PrintBucketsTable(buckets []models.BucketInfo, scanStartTime time.Time, scanDuration time.Duration) {
 	if len(buckets) == 0 {
-		fmt.Println("\nNo idle S3 buckets found")
+		fmt.Println("No idle S3 buckets found.")
 		return
 	}
 
@@ -22,14 +24,16 @@ func PrintBucketsTable(buckets []models.BucketInfo, scanStartTime time.Time, sca
 		return buckets[i].IdleDays > buckets[j].IdleDays
 	})
 
-	printTimestamp(scanStartTime, scanDuration)
+	// Setup tabwriter for kubernetes style tables
+	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, ' ', 0)
 
-	// Print table header
-	fmt.Println("\nIDLE S3 BUCKETS:")
-	fmt.Println(strings.Repeat("-", 130))
-	fmt.Printf("%-32s %-15s %-11s %-15s %-12s %-15s %-9s %s\n",
-		"BUCKET NAME", "REGION", "OBJECTS", "SIZE", "IDLE DAYS", "LAST MODIFIED", "EMPTY", "USAGE")
-	fmt.Println(strings.Repeat("-", 130))
+	// Print scan timestamp
+	fmt.Fprintf(w, "Scan time: %s (completed in %.2f seconds)\n",
+		scanStartTime.Format("2006-01-02 15:04:05"),
+		scanDuration.Seconds())
+
+	// Print header
+	fmt.Fprintln(w, "NAME\tREGION\tOBJECTS\tSIZE\tIDLE DAYS\tLAST MODIFIED\tEMPTY\tUSAGE")
 
 	// Print table rows
 	for _, bucket := range buckets {
@@ -45,17 +49,24 @@ func PrintBucketsTable(buckets []models.BucketInfo, scanStartTime time.Time, sca
 		// Format size
 		sizeFormatted := utils.FormatBytes(bucket.TotalSize)
 
-		fmt.Printf("%-32s %-15s %-11d %-15s %-12d %-15s %-9t %s\n",
+		// Format empty value as a string instead of boolean
+		emptyStr := "Yes"
+		if !bucket.IsEmpty {
+			emptyStr = "No"
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%d\t%s\t%s\t%s\n",
 			bucket.BucketName,
 			bucket.Region,
 			bucket.ObjectCount,
 			sizeFormatted,
 			bucket.IdleDays,
 			lastModified,
-			bucket.IsEmpty,
+			emptyStr,
 			usage)
 	}
-	fmt.Println(strings.Repeat("-", 130))
+
+	w.Flush()
 }
 
 // formatBucketUsage returns a human-readable description of bucket usage
@@ -127,14 +138,16 @@ func PrintBucketsSummary(buckets []models.BucketInfo) {
 		totalIdleSize += bucket.TotalSize
 	}
 
-	// Print summary
-	fmt.Println("\nSUMMARY:")
-	fmt.Println(strings.Repeat("-", 80))
-	fmt.Printf("Total S3 buckets scanned: %d\n", len(buckets))
-	fmt.Printf("  Empty buckets: %d\n", len(emptyBuckets))
-	fmt.Printf("  Idle buckets: %d\n", len(idleBuckets))
-	fmt.Printf("Total idle storage: %s\n", utils.FormatBytes(totalIdleSize))
-	fmt.Println(strings.Repeat("-", 80))
+	// Setup tabwriter for kubernetes style tables
+	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, ' ', 0)
+
+	fmt.Fprintln(w, "\nS3 BUCKETS SUMMARY:")
+	fmt.Fprintf(w, "Total buckets scanned:\t%d\n", len(buckets))
+	fmt.Fprintf(w, "Empty buckets:\t%d\n", len(emptyBuckets))
+	fmt.Fprintf(w, "Idle buckets:\t%d\n", len(idleBuckets))
+	fmt.Fprintf(w, "Total idle storage:\t%s\n", utils.FormatBytes(totalIdleSize))
+
+	w.Flush()
 
 	// Print additional recommendations for buckets by age category
 	printBucketsAgeBreakdown(bucketsByAge)
@@ -165,17 +178,22 @@ func printBucketsAgeBreakdown(buckets []models.BucketInfo) {
 		}
 	}
 
-	fmt.Println("\nAGE BREAKDOWN:")
-	fmt.Printf("  ≤ 30 days: %d buckets\n", b30Days)
-	fmt.Printf("  31-90 days: %d buckets\n", b90Days)
-	fmt.Printf("  91-180 days: %d buckets\n", b180Days)
-	fmt.Printf("  181-365 days: %d buckets\n", b365Days)
-	fmt.Printf("  > 365 days: %d buckets\n", bOlder)
+	// Setup tabwriter for kubernetes style tables
+	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, ' ', 0)
+
+	fmt.Fprintln(w, "\nAGE BREAKDOWN:")
+	fmt.Fprintf(w, "≤ 30 days:\t%d buckets\n", b30Days)
+	fmt.Fprintf(w, "31-90 days:\t%d buckets\n", b90Days)
+	fmt.Fprintf(w, "91-180 days:\t%d buckets\n", b180Days)
+	fmt.Fprintf(w, "181-365 days:\t%d buckets\n", b365Days)
+	fmt.Fprintf(w, "> 365 days:\t%d buckets\n", bOlder)
 
 	// Suggest lifecycle policy if older buckets exist
 	if b180Days+b365Days+bOlder > 0 {
-		fmt.Println("\nRECOMMENDATIONS:")
-		fmt.Println("  - Consider implementing lifecycle policies for long-term idle buckets")
-		fmt.Println("  - Review empty buckets for potential cleanup")
+		fmt.Fprintln(w, "\nRECOMMENDATIONS:")
+		fmt.Fprintln(w, "- Consider implementing lifecycle policies for long-term idle buckets")
+		fmt.Fprintln(w, "- Review empty buckets for potential cleanup")
 	}
+
+	w.Flush()
 }
