@@ -7,10 +7,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/briandowns/spinner"
 	"github.com/spf13/cobra"
 	"github.com/younsl/idled/internal/models"
 	"github.com/younsl/idled/pkg/aws"
 	"github.com/younsl/idled/pkg/formatter"
+	"github.com/younsl/idled/pkg/pricing"
 	"github.com/younsl/idled/pkg/utils"
 )
 
@@ -30,6 +32,15 @@ var (
 		"s3":  true,
 	}
 )
+
+// startResourceSpinner creates and starts a spinner with a message for the given service
+func startResourceSpinner(service string) *spinner.Spinner {
+	s := spinner.New(spinner.CharSets[9], 200*time.Millisecond)
+	s.Suffix = fmt.Sprintf(" Analyzing %s resources...", service)
+	// Don't set FinalMSG here as it will be set dynamically based on scan time
+	s.Start()
+	return s
+}
 
 func main() {
 	rootCmd := &cobra.Command{
@@ -140,8 +151,11 @@ and displays the results in a table format.`,
 
 // processEC2 handles the scanning of EC2 instances
 func processEC2(regions []string) {
-	fmt.Println("Scanning for stopped EC2 instances ...")
+	fmt.Println("Starting EC2 scan...")
 	scanStartTime := time.Now()
+
+	// Start the spinner
+	s := startResourceSpinner("EC2")
 
 	// Slice to store results
 	allInstances := make([]struct {
@@ -173,6 +187,18 @@ func processEC2(regions []string) {
 
 	wg.Wait()
 
+	// Calculate scan duration
+	scanDuration := time.Since(scanStartTime)
+
+	// Set completion message with scan time
+	s.FinalMSG = fmt.Sprintf("✓ EC2 resources analyzed - Completed in %.2f seconds\n", scanDuration.Seconds())
+	s.Stop() // Stop the spinner when done
+
+	// Display API init message if any
+	if msg := pricing.GetInitMessage(); msg != "" {
+		fmt.Println(msg)
+	}
+
 	// Process results
 	var allStoppedInstances []models.InstanceInfo
 
@@ -185,9 +211,6 @@ func processEC2(regions []string) {
 		allStoppedInstances = append(allStoppedInstances, result.instances...)
 	}
 
-	// Calculate scan duration
-	scanDuration := time.Since(scanStartTime)
-
 	// Display as table
 	formatter.PrintInstancesTable(allStoppedInstances, scanStartTime, scanDuration)
 	formatter.PrintInstancesSummary(allStoppedInstances)
@@ -195,8 +218,11 @@ func processEC2(regions []string) {
 
 // processEBS handles the scanning of available EBS volumes
 func processEBS(regions []string) {
-	fmt.Println("Scanning for available EBS volumes ...")
+	fmt.Println("Starting EBS scan...")
 	scanStartTime := time.Now()
+
+	// Start the spinner
+	s := startResourceSpinner("EBS")
 
 	// Slice to store results
 	allVolumes := make([]struct {
@@ -228,6 +254,18 @@ func processEBS(regions []string) {
 
 	wg.Wait()
 
+	// Calculate scan duration
+	scanDuration := time.Since(scanStartTime)
+
+	// Set completion message with scan time
+	s.FinalMSG = fmt.Sprintf("✓ EBS resources analyzed - Completed in %.2f seconds\n", scanDuration.Seconds())
+	s.Stop() // Stop the spinner when done
+
+	// Display API init message if any
+	if msg := pricing.GetInitMessage(); msg != "" {
+		fmt.Println(msg)
+	}
+
 	// Process results
 	var allAvailableVolumes []models.VolumeInfo
 
@@ -240,9 +278,6 @@ func processEBS(regions []string) {
 		allAvailableVolumes = append(allAvailableVolumes, result.volumes...)
 	}
 
-	// Calculate scan duration
-	scanDuration := time.Since(scanStartTime)
-
 	// Display as table with the requested format
 	formatter.PrintVolumesTable(allAvailableVolumes, scanStartTime, scanDuration)
 	formatter.PrintVolumesSummary(allAvailableVolumes)
@@ -250,8 +285,11 @@ func processEBS(regions []string) {
 
 // processS3 handles the scanning of idle S3 buckets
 func processS3(regions []string) {
-	fmt.Println("Scanning for idle S3 buckets ...")
+	fmt.Println("Starting S3 scan...")
 	scanStartTime := time.Now()
+
+	// Start the spinner
+	s := startResourceSpinner("S3")
 
 	// Slice to store results
 	allBuckets := make([]struct {
@@ -283,6 +321,18 @@ func processS3(regions []string) {
 
 	wg.Wait()
 
+	// Calculate scan duration
+	scanDuration := time.Since(scanStartTime)
+
+	// Set completion message with scan time
+	s.FinalMSG = fmt.Sprintf("✓ S3 resources analyzed - Completed in %.2f seconds\n", scanDuration.Seconds())
+	s.Stop() // Stop the spinner when done
+
+	// Display API init message if any
+	if msg := pricing.GetInitMessage(); msg != "" {
+		fmt.Println(msg)
+	}
+
 	// Process results
 	var allIdleBuckets []models.BucketInfo
 
@@ -296,7 +346,7 @@ func processS3(regions []string) {
 	}
 
 	// Calculate scan duration
-	scanDuration := time.Since(scanStartTime)
+	scanDuration = time.Since(scanStartTime)
 
 	// Display as table
 	formatter.PrintBucketsTable(allIdleBuckets, scanStartTime, scanDuration)

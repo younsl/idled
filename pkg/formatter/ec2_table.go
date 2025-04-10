@@ -25,11 +25,6 @@ func PrintInstancesTable(instances []models.InstanceInfo, scanTime time.Time, sc
 	// kubectl 스타일 tabwriter 설정
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, ' ', 0)
 
-	// Print scan timestamp first
-	fmt.Fprintf(w, "Scan time: %s (completed in %.2f seconds)\n",
-		scanTime.Format("2006-01-02 15:04:05"),
-		scanDuration.Seconds())
-
 	// Print header
 	fmt.Fprintln(w, "INSTANCE ID\tNAME\tTYPE\tREGION\tSTOPPED SINCE\tDAYS\tCOST/MO\tTOTAL SAVED\tPRICING")
 

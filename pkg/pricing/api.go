@@ -23,6 +23,9 @@ var (
 
 	// Spinners for different services
 	pricingSpinners = make(map[string]*spinner.Spinner)
+
+	// InitMessage stores the API initialization message to be displayed after spinners
+	InitMessage string
 )
 
 // InitPricingClient initializes the AWS pricing client
@@ -31,12 +34,19 @@ func InitPricingClient() {
 	pricingRegion := "us-east-1" // Pricing API is only available in us-east-1 and ap-south-1
 	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(pricingRegion))
 	if err != nil {
-		fmt.Printf("Error loading AWS config for pricing API: %v. Using fallback pricing.\n", err)
+		InitMessage = fmt.Sprintf("Error loading AWS config for pricing API: %v. Using fallback pricing.", err)
 		return
 	}
 
 	PricingClient = pricing.NewFromConfig(cfg)
-	fmt.Printf("AWS Pricing API initialized in %s region (https://api.pricing.%s.amazonaws.com)\n", pricingRegion, pricingRegion)
+	InitMessage = fmt.Sprintf("AWS Pricing API initialized in %s region (https://api.pricing.%s.amazonaws.com)", pricingRegion, pricingRegion)
+}
+
+// GetInitMessage returns the initialization message and clears it
+func GetInitMessage() string {
+	msg := InitMessage
+	InitMessage = "" // Clear the message after it's retrieved
+	return msg
 }
 
 // initPricingSpinner initializes a spinner for a specific service

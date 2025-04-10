@@ -13,7 +13,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwTypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/briandowns/spinner"
 	"github.com/younsl/idled/internal/models"
 	"github.com/younsl/idled/pkg/utils"
 )
@@ -61,19 +60,11 @@ func (c *S3Client) SetIdleThreshold(days int) {
 
 // GetIdleBuckets returns a list of S3 buckets with idle detection metrics
 func (c *S3Client) GetIdleBuckets() ([]models.BucketInfo, error) {
-	// Create and start a spinner for visual feedback
-	sp := spinner.New(spinner.CharSets[9], 100*time.Millisecond)
-	sp.Suffix = fmt.Sprintf(" Scanning S3 buckets in %s...", c.region)
-	sp.Start()
-	defer sp.Stop()
-
 	// List all buckets
 	result, err := c.client.ListBuckets(context.TODO(), &s3.ListBucketsInput{})
 	if err != nil {
 		return nil, fmt.Errorf("error listing S3 buckets: %w", err)
 	}
-
-	sp.Suffix = fmt.Sprintf(" Found %d total buckets, filtering for region %s...", len(result.Buckets), c.region)
 
 	var bucketInfos []models.BucketInfo
 	var regionBuckets []string // Store bucket names instead of bucket objects
@@ -102,10 +93,7 @@ func (c *S3Client) GetIdleBuckets() ([]models.BucketInfo, error) {
 	}
 
 	// Process each bucket
-	for i, bucketName := range regionBuckets {
-		sp.Suffix = fmt.Sprintf(" Analyzing bucket %d/%d in %s: %s",
-			i+1, totalBuckets, c.region, bucketName)
-
+	for _, bucketName := range regionBuckets {
 		// Find the matching bucket object to get creation date
 		var creationDate time.Time
 		for _, b := range result.Buckets {
