@@ -10,7 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.211.2
 	github.com/aws/aws-sdk-go-v2/service/pricing v1.34.2
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.78.0
-	github.com/briandowns/spinner v1.23.0
+	github.com/briandowns/spinner v1.23.2
 	github.com/spf13/cobra v1.9.1
 )
 
