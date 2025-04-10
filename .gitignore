@@ -1,0 +1,70 @@
+#----------------------------------------
+# IDE
+#----------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+
+#----------------------------------------
+# Python
+#----------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.env
+venv/
+
+#----------------------------------------
+# Go
+#----------------------------------------
+bin/
+
+#----------------------------------------
+# Terraform
+#----------------------------------------
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraformrc
+terraform.rc
+
+#----------------------------------------
+# Keys & Secrets
+#----------------------------------------
+.key
+*.pem
+*.key
+*.crt
+
+#----------------------------------------
+# Helm charts
+#----------------------------------------
+values_*.yaml
+
+#----------------------------------
+# Temporary ad-hoc script
+#----------------------------------
+commit-history-cleaner.sh
+
+# Ignore original script file
+!box/script/github/commit-history-cleaner/commit-history-cleaner.sh
