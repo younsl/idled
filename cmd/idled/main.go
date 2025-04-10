@@ -27,6 +27,7 @@ var (
 	supportedServices = map[string]bool{
 		"ec2": true,
 		"ebs": true,
+		"s3":  true,
 	}
 )
 
@@ -100,6 +101,8 @@ and displays the results in a table format.`,
 					processEC2(validRegions)
 				case "ebs":
 					processEBS(validRegions)
+				case "s3":
+					processS3(validRegions)
 				// Add more services here in the future
 				default:
 					// This should never happen due to earlier checks
@@ -243,4 +246,59 @@ func processEBS(regions []string) {
 	// Display as table with the requested format
 	formatter.PrintVolumesTable(allAvailableVolumes, scanStartTime, scanDuration)
 	formatter.PrintVolumesSummary(allAvailableVolumes)
+}
+
+// processS3 handles the scanning of idle S3 buckets
+func processS3(regions []string) {
+	fmt.Println("Scanning for idle S3 buckets ...")
+	scanStartTime := time.Now()
+
+	// Slice to store results
+	allBuckets := make([]struct {
+		buckets []models.BucketInfo
+		err     error
+		region  string
+	}, len(regions))
+
+	// Process each region in parallel
+	var wg sync.WaitGroup
+	for i, region := range regions {
+		wg.Add(1)
+		go func(idx int, r string) {
+			defer wg.Done()
+
+			client, err := aws.NewS3Client(r)
+			if err != nil {
+				allBuckets[idx].err = err
+				allBuckets[idx].region = r
+				return
+			}
+
+			buckets, err := client.GetIdleBuckets()
+			allBuckets[idx].buckets = buckets
+			allBuckets[idx].err = err
+			allBuckets[idx].region = r
+		}(i, region)
+	}
+
+	wg.Wait()
+
+	// Process results
+	var allIdleBuckets []models.BucketInfo
+
+	// Process results from each region
+	for _, result := range allBuckets {
+		if result.err != nil {
+			fmt.Printf("Error in region %s: %v\n", result.region, result.err)
+			continue
+		}
+		allIdleBuckets = append(allIdleBuckets, result.buckets...)
+	}
+
+	// Calculate scan duration
+	scanDuration := time.Since(scanStartTime)
+
+	// Display as table
+	formatter.PrintBucketsTable(allIdleBuckets, scanStartTime, scanDuration)
+	formatter.PrintBucketsSummary(allIdleBuckets)
 }
