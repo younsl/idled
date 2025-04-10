@@ -3,6 +3,8 @@ package aws
 import (
 	"context"
 	"fmt"
+	"math"
+	"sort"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -214,37 +216,210 @@ func (c *S3Client) analyzeBucket(bucketName string, creationDate time.Time) (mod
 
 // getBucketStats gets statistics about the bucket
 func (c *S3Client) getBucketStats(bucketName string) (int64, int64, *time.Time, error) {
-	var objectCount int64
-	var totalSize int64
-	var lastModified *time.Time
+	// Use CloudWatch metrics instead of listing all objects
+	ctx := context.TODO()
+	endTime := time.Now()
+	startTime := endTime.AddDate(0, 0, -30) // Last 30 days
 
-	params := &s3.ListObjectsV2Input{
-		Bucket: aws.String(bucketName),
+	// Get bucket size from CloudWatch metrics
+	sizeInput := &cloudwatch.GetMetricStatisticsInput{
+		Namespace:  aws.String("AWS/S3"),
+		MetricName: aws.String("BucketSizeBytes"),
+		Dimensions: []cwTypes.Dimension{
+			{
+				Name:  aws.String("BucketName"),
+				Value: aws.String(bucketName),
+			},
+			{
+				Name:  aws.String("StorageType"),
+				Value: aws.String("StandardStorage"),
+			},
+		},
+		StartTime:  aws.Time(startTime),
+		EndTime:    aws.Time(endTime),
+		Period:     aws.Int32(86400), // 1 day
+		Statistics: []cwTypes.Statistic{cwTypes.StatisticAverage},
 	}
 
-	paginator := s3.NewListObjectsV2Paginator(c.client, params)
-	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
-		if err != nil {
-			return 0, 0, nil, err
+	sizeResult, err := c.cwClient.GetMetricStatistics(ctx, sizeInput)
+	if err != nil {
+		return 0, 0, nil, fmt.Errorf("error getting bucket size metrics: %w", err)
+	}
+
+	// Get object count from CloudWatch metrics
+	countInput := &cloudwatch.GetMetricStatisticsInput{
+		Namespace:  aws.String("AWS/S3"),
+		MetricName: aws.String("NumberOfObjects"),
+		Dimensions: []cwTypes.Dimension{
+			{
+				Name:  aws.String("BucketName"),
+				Value: aws.String(bucketName),
+			},
+			{
+				Name:  aws.String("StorageType"),
+				Value: aws.String("AllStorageTypes"),
+			},
+		},
+		StartTime:  aws.Time(startTime),
+		EndTime:    aws.Time(endTime),
+		Period:     aws.Int32(86400), // 1 day
+		Statistics: []cwTypes.Statistic{cwTypes.StatisticAverage},
+	}
+
+	countResult, err := c.cwClient.GetMetricStatistics(ctx, countInput)
+	if err != nil {
+		return 0, 0, nil, fmt.Errorf("error getting object count metrics: %w", err)
+	}
+
+	// Initialize with default values
+	var totalSize int64
+	var objectCount int64
+	var lastModified *time.Time
+
+	// Process size metric results - get the most recent data point
+	if len(sizeResult.Datapoints) > 0 {
+		// Sort datapoints by timestamp (descending)
+		sort.Slice(sizeResult.Datapoints, func(i, j int) bool {
+			return sizeResult.Datapoints[i].Timestamp.After(*sizeResult.Datapoints[j].Timestamp)
+		})
+
+		// Use the most recent datapoint
+		if sizeResult.Datapoints[0].Average != nil {
+			totalSize = int64(*sizeResult.Datapoints[0].Average)
 		}
 
-		objectCount += int64(len(page.Contents))
-
-		for _, object := range page.Contents {
-			// Size is a pointer in the latest AWS SDK
-			if object.Size != nil {
-				totalSize += *object.Size
+		// Try to find when the bucket size last changed significantly
+		lastChanged := findLastMetricChange(sizeResult.Datapoints)
+		if lastChanged != nil && (lastModified == nil || lastChanged.Before(*lastModified)) {
+			if !lastChanged.After(time.Now()) { // Ensure we don't use future dates
+				lastModified = lastChanged
 			}
+		}
+	}
 
-			// Track the most recent LastModified time
-			if lastModified == nil || object.LastModified.After(*lastModified) {
-				lastModified = object.LastModified
+	// Process object count metric results
+	if len(countResult.Datapoints) > 0 {
+		// Sort datapoints by timestamp (descending)
+		sort.Slice(countResult.Datapoints, func(i, j int) bool {
+			return countResult.Datapoints[i].Timestamp.After(*countResult.Datapoints[j].Timestamp)
+		})
+
+		// Use the most recent datapoint
+		if countResult.Datapoints[0].Average != nil {
+			objectCount = int64(*countResult.Datapoints[0].Average)
+		}
+
+		// If we don't have lastModified from size metrics, try from count metrics
+		if lastModified == nil {
+			lastChanged := findLastMetricChange(countResult.Datapoints)
+			if lastChanged != nil && !lastChanged.After(time.Now()) {
+				lastModified = lastChanged
 			}
+		}
+	}
+
+	// Fallback: if we couldn't determine lastModified from metrics or it's in the future,
+	// use creation date or a reasonable fallback
+	if lastModified == nil || lastModified.After(time.Now()) {
+		// Try to use creation date if available
+		for _, apiType := range []string{"GetRequests", "PutRequests"} {
+			// Find the earliest API activity as a proxy for creation/first use
+			activityTime := findEarliestActivity(c.cwClient, bucketName, apiType)
+			if activityTime != nil && (lastModified == nil || activityTime.Before(*lastModified)) {
+				lastModified = activityTime
+			}
+		}
+
+		// If still no valid date, use a more conservative estimate
+		if lastModified == nil || lastModified.After(time.Now()) {
+			// Use 90 days ago as a safe fallback - better to potentially mark as idle
+			// than to incorrectly mark as recently active
+			t := time.Now().AddDate(0, 0, -90)
+			lastModified = &t
 		}
 	}
 
 	return objectCount, totalSize, lastModified, nil
+}
+
+// findLastMetricChange analyzes metric datapoints to find the last significant change
+func findLastMetricChange(datapoints []cwTypes.Datapoint) *time.Time {
+	if len(datapoints) < 2 {
+		if len(datapoints) == 1 {
+			return datapoints[0].Timestamp
+		}
+		return nil
+	}
+
+	// Sort by timestamp (ascending)
+	sort.Slice(datapoints, func(i, j int) bool {
+		return datapoints[i].Timestamp.Before(*datapoints[j].Timestamp)
+	})
+
+	var lastChangeTime *time.Time
+	var prevValue float64
+	if datapoints[0].Average != nil {
+		prevValue = *datapoints[0].Average
+	}
+
+	for i := 1; i < len(datapoints); i++ {
+		var currentValue float64
+		if datapoints[i].Average != nil {
+			currentValue = *datapoints[i].Average
+		}
+
+		// Look for any non-trivial change (0.1% is significant enough)
+		if prevValue > 0 && math.Abs(currentValue-prevValue)/prevValue > 0.001 {
+			lastChangeTime = datapoints[i].Timestamp
+		} else if prevValue == 0 && currentValue > 0 {
+			// Special case: from zero to non-zero is always significant
+			lastChangeTime = datapoints[i].Timestamp
+		}
+		prevValue = currentValue
+	}
+
+	return lastChangeTime
+}
+
+// findEarliestActivity finds the earliest recorded API activity for a bucket
+func findEarliestActivity(cwClient *cloudwatch.Client, bucketName string, metricName string) *time.Time {
+	ctx := context.TODO()
+	endTime := time.Now()
+	startTime := endTime.AddDate(0, 0, -90) // Look back 90 days max
+
+	metricsInput := &cloudwatch.GetMetricStatisticsInput{
+		Namespace:  aws.String("AWS/S3"),
+		MetricName: aws.String(metricName),
+		Dimensions: []cwTypes.Dimension{
+			{
+				Name:  aws.String("BucketName"),
+				Value: aws.String(bucketName),
+			},
+		},
+		StartTime:  aws.Time(startTime),
+		EndTime:    aws.Time(endTime),
+		Period:     aws.Int32(86400), // 1 day
+		Statistics: []cwTypes.Statistic{cwTypes.StatisticSum},
+	}
+
+	result, err := cwClient.GetMetricStatistics(ctx, metricsInput)
+	if err != nil || len(result.Datapoints) == 0 {
+		return nil
+	}
+
+	// Find the earliest datapoint with activity
+	sort.Slice(result.Datapoints, func(i, j int) bool {
+		return result.Datapoints[i].Timestamp.Before(*result.Datapoints[j].Timestamp)
+	})
+
+	// Find first datapoint with non-zero activity
+	for _, dp := range result.Datapoints {
+		if dp.Sum != nil && *dp.Sum > 0 {
+			return dp.Timestamp
+		}
+	}
+
+	return nil
 }
 
 // getBucketAPIActivity gets API call activity from CloudWatch metrics
@@ -357,31 +532,31 @@ func (c *S3Client) determineBucketIdleStatus(bucketInfo *models.BucketInfo) bool
 		return true
 	}
 
-	// If bucket has been modified recently, it is NOT idle
-	if bucketInfo.LastModified != nil {
-		daysSinceModified := utils.CalculateElapsedDays(*bucketInfo.LastModified)
+	// No last modified date means we can't reliably determine status
+	// Conservatively mark as not idle unless very clear evidence
+	if bucketInfo.LastModified == nil {
+		// Only mark as idle if zero API activity
+		return bucketInfo.GetRequestsLast30Days == 0 && bucketInfo.PutRequestsLast30Days == 0
+	}
 
-		// Buckets modified within threshold days are NEVER idle
-		if daysSinceModified <= c.idleThreshold {
-			return false
+	// Calculate days since last modification
+	daysSinceModified := utils.CalculateElapsedDays(*bucketInfo.LastModified)
+
+	// Debug logging removed for clarity
+
+	// Primary idle check: No PUT requests and older than threshold
+	if bucketInfo.PutRequestsLast30Days == 0 && daysSinceModified > c.idleThreshold {
+		// For buckets with minimal GET activity
+		if bucketInfo.GetRequestsLast30Days < 5 {
+			return true
 		}
 
-		// For older buckets, check if there's ongoing read activity
-		if bucketInfo.GetRequestsLast30Days < 10 {
+		// For buckets with moderate GET activity but no changes
+		if bucketInfo.GetRequestsLast30Days < 100 && daysSinceModified > c.idleThreshold*2 {
 			return true
 		}
 	}
 
-	// Only consider buckets idle due to low API activity if:
-	// 1. We don't have modification data OR
-	// 2. The bucket is older than the threshold
-	if (bucketInfo.LastModified == nil ||
-		utils.CalculateElapsedDays(*bucketInfo.LastModified) > c.idleThreshold) &&
-		bucketInfo.GetRequestsLast30Days == 0 &&
-		bucketInfo.PutRequestsLast30Days == 0 {
-		return true
-	}
-
-	// Not idle by our criteria
+	// Not idle if it doesn't meet our criteria
 	return false
 }
