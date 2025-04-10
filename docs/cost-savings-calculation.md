@@ -54,6 +54,55 @@ The calculation shows:
 - Monthly Savings: 100 × $0.10 = $10.00 per month
 - This is regardless of how long the volume has been unused
 
+## S3 Bucket Analysis
+
+Idled analyzes S3 buckets to identify those that may be unused or underutilized. While S3 buckets have different cost considerations than EC2 or EBS resources, identifying idle buckets can help with:
+
+### Identification Criteria
+
+Idled considers a bucket "idle" if it meets one of these criteria:
+
+1. **Empty Buckets**: Buckets with no objects (0 objects)
+2. **No Recent Modifications**: Buckets with no modifications within the threshold period (default: 30 days)
+3. **No API Activity**: Buckets with no GetObject or PutObject requests in the last 30 days (requires CloudWatch metrics)
+
+### Analysis Information
+
+For S3 buckets, Idled shows:
+
+1. **Bucket Name**: The name of the S3 bucket
+2. **Region**: AWS region where the bucket is located
+3. **Objects**: Total number of objects in the bucket
+4. **Size**: Total storage used by the bucket
+5. **Idle Days**: Days since the last modification
+6. **Last Modified**: Date of the last object modification
+7. **Empty**: Whether the bucket has no objects
+8. **Usage**: Detected usage patterns and configurations:
+   - Recently Modified: Modified within last 30 days
+   - Website: Configured for static website hosting
+   - Policy: Has bucket policy
+   - Events: Has event notifications
+   - Static Content: High read, low write access pattern
+   - API usage statistics
+
+### Cost Considerations
+
+While Idled does not currently calculate exact S3 cost savings, potential savings from idle S3 buckets include:
+
+1. **Storage Costs**: Removing unused data
+2. **API Request Costs**: Fewer GET/PUT operations
+3. **Data Transfer Costs**: Less data transferred out
+4. **Lifecycle Management**: Potential savings from moving data to cheaper storage classes
+
+### Progress Indicators
+
+For S3 operations that may take a long time (especially for buckets with millions of objects), Idled displays real-time progress information:
+
+1. **Bucket discovery**: Shows total bucket count
+2. **Region filtering**: Shows which buckets belong to the target region
+3. **Analysis progress**: Shows which bucket is currently being analyzed
+4. **Completion summary**: Shows total buckets processed
+
 ## Price Data Sources
 
 Idled collects pricing information from:

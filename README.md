@@ -9,18 +9,19 @@ idled stands for "idle finder". idled is a CLI tool that finds idle AWS resource
 ## Features
 
 - Scan multiple AWS regions for idle resources
-- Currently supports stopped EC2 instances and unattached EBS volumes (RDS, ELB planned)
+- Currently supports stopped EC2 instances, unattached EBS volumes, and idle S3 buckets (RDS, ELB planned)
 - Show resource details and idle time
 - Display results in a clean table format (Kubernetes style)
 - Sort instances by idle time (longest first)
 - Provide summary statistics by idle time
 - Follows the Golang Standard Project Layout
 - Scan multiple AWS regions in parallel
-- Identify stopped EC2 instances and unattached EBS volumes
+- Identify stopped EC2 instances, unattached EBS volumes, and idle S3 buckets
 - Display resource details (ID, type, region, stop time, etc.)
 - Sort resources by idle time or potential savings
 - Calculate estimated cost savings using real-time pricing data
 - Display total estimated cost savings across all resources
+- Real-time progress indication for long-running operations
 
 ## Installation
 
@@ -77,6 +78,8 @@ Specify AWS services:
 ```bash
 idled --services ebs
 idled --services ec2,ebs
+idled --services s3
+idled --services ec2,ebs,s3
 ```
 
 Check CLI version:
@@ -102,6 +105,7 @@ This tool uses the AWS SDK's default credential chain:
 |------------|--------------|--------------------------------|--------|
 | EC2        | ✅ Supported | Stopped EC2 instances          | -      |
 | EBS        | ✅ Supported | Unattached EBS volumes         | Not available IOPS and throughput calculation, Only available volume size |
+| S3         | ✅ Supported | Idle S3 buckets                | Empty buckets, buckets with no recent modifications or API activity |
 | ELB        | ⏳ Planned   | Load balancers with no targets | -      |
 | EC2 EIP    | ⏳ Planned   | Non-attached Elastic IPs       | -      |
 
