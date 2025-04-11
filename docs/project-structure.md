@@ -19,12 +19,14 @@ idled/
 │   │   ├── ec2.go
 │   │   ├── ebs.go
 │   │   ├── s3.go
+│   │   ├── lambda.go
 │   │   ├── ec2_pricing.go
 │   │   └── ebs_pricing.go
 │   ├── formatter/    # Output formatters
 │   │   ├── ec2_table.go
 │   │   ├── ebs_table.go
-│   │   └── s3.go
+│   │   ├── s3_table.go
+│   │   └── lambda_table.go
 │   └── utils/        # Utility functions
 │       └── format.go
 ├── docs/             # Documentation
@@ -109,3 +111,35 @@ The S3 idle bucket detection is implemented with the following components:
 - Shows real-time progress for S3 operations
 - Especially valuable for large buckets or many buckets
 - Helps users understand the state of long-running operations
+
+## Lambda Implementation Details
+
+The Lambda idle function detection is implemented with the following components:
+
+### 1. Data Model (`internal/models/lambda.go`)
+
+- Defines the `LambdaFunctionInfo` struct that holds information about a Lambda function
+- Includes fields for function configuration, invocation metrics, and idle detection
+
+### 2. AWS Client (`pkg/aws/lambda.go`)
+
+- Implements Lambda and CloudWatch API operations using AWS SDK v2
+- Provides methods to:
+  - List all Lambda functions in a region
+  - Analyze function usage metrics (invocations, errors, duration)
+  - Determine the last invocation time from CloudWatch metrics
+  - Calculate estimated monthly costs based on memory, duration, and invocation count
+  - Determine if a function is idle based on invocation patterns
+
+### 3. Output Formatter (`pkg/formatter/lambda_table.go`)
+
+- Displays Lambda function information in a tabular format
+- Shows key metrics like runtime, memory, invocations, errors, and idle days
+- Estimates monthly cost for each function
+- Provides summary statistics on idle functions
+
+### 4. Progress Indication
+
+- Shows real-time progress for Lambda analysis operations
+- Displays current function being analyzed and overall progress percentage
+- Provides clear feedback for long-running operations where many Lambda functions are being analyzed

@@ -27,9 +27,10 @@ var (
 	services          []string
 	showVersion       bool
 	supportedServices = map[string]bool{
-		"ec2": true,
-		"ebs": true,
-		"s3":  true,
+		"ec2":    true,
+		"ebs":    true,
+		"s3":     true,
+		"lambda": true,
 	}
 )
 
@@ -114,6 +115,8 @@ and displays the results in a table format.`,
 					processEBS(validRegions)
 				case "s3":
 					processS3(validRegions)
+				case "lambda":
+					processLambda(validRegions)
 				// Add more services here in the future
 				default:
 					// This should never happen due to earlier checks
@@ -351,4 +354,59 @@ func processS3(regions []string) {
 	// Display as table
 	formatter.PrintBucketsTable(allIdleBuckets, scanStartTime, scanDuration)
 	formatter.PrintBucketsSummary(allIdleBuckets)
+}
+
+// processLambda handles the scanning of idle Lambda functions
+func processLambda(regions []string) {
+	fmt.Println("Starting Lambda scan...")
+	scanStartTime := time.Now()
+
+	// Slice to store results
+	allFunctions := make([]struct {
+		functions []models.LambdaFunctionInfo
+		err       error
+		region    string
+	}, len(regions))
+
+	// Process each region in parallel
+	var wg sync.WaitGroup
+	for i, region := range regions {
+		wg.Add(1)
+		go func(idx int, r string) {
+			defer wg.Done()
+
+			client, err := aws.NewLambdaClient(r)
+			if err != nil {
+				allFunctions[idx].err = err
+				allFunctions[idx].region = r
+				return
+			}
+
+			functions, err := client.GetIdleFunctions()
+			allFunctions[idx].functions = functions
+			allFunctions[idx].err = err
+			allFunctions[idx].region = r
+		}(i, region)
+	}
+
+	wg.Wait()
+
+	// Calculate scan duration
+	scanDuration := time.Since(scanStartTime)
+	fmt.Printf("\n✓ Lambda scan completed in %.2f seconds\n\n", scanDuration.Seconds())
+
+	// Process results
+	var allIdleFunctions []models.LambdaFunctionInfo
+
+	// Process results from each region
+	for _, result := range allFunctions {
+		if result.err != nil {
+			fmt.Printf("Error in region %s: %v\n", result.region, result.err)
+			continue
+		}
+		allIdleFunctions = append(allIdleFunctions, result.functions...)
+	}
+
+	// Display as table
+	formatter.FormatLambdaTable(allIdleFunctions)
 }

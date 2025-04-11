@@ -111,4 +111,56 @@ Idled collects pricing information from:
 2. **Cache**: Previously retrieved prices stored for better performance
 3. **Default**: Built-in fallback prices when API data is unavailable
 
-The source is marked in the `PRICING` column: API, CACHE, or N/A. 
+The source is marked in the `PRICING` column: API, CACHE, or N/A.
+
+## Lambda Function Cost Estimation
+
+Idled includes cost estimation for AWS Lambda functions to help identify potential savings from idle functions.
+
+### Calculation Method
+
+For Lambda functions, Idled calculates the estimated monthly cost based on:
+
+1. **Request Costs**: The cost of function invocations
+   - Formula: `monthly invocations × $0.20 per million requests`
+   - Based on the actual number of invocations over the past 30 days
+
+2. **Compute Costs**: The cost of execution time and memory usage
+   - Formula: `GB-seconds × $0.0000166667 per GB-second`
+   - GB-seconds = `invocations × average duration (seconds) × memory (GB)`
+   - Memory is converted from MB to GB (divided by 1024)
+   - Duration is converted from ms to seconds (divided by 1000)
+
+3. **Total Monthly Cost**: The sum of request and compute costs
+   - Formula: `request costs + compute costs`
+   - This is the estimated monthly cost based on current usage patterns
+   - Note: Free tier benefits are not included in this calculation
+
+### Idle Function Identification
+
+Idled considers a Lambda function "idle" if it meets one of these criteria:
+
+1. **No Invocations**: Function has not been invoked in the last 30 days
+2. **Low Usage**: Function's last invocation is older than the threshold (default: 30 days)
+
+### Cost Savings Potential
+
+While Idled does not currently show accumulated savings for Lambda functions as it does for EC2 instances, you can:
+
+1. Use the "ESTIMATED COST" column to identify functions with minimal cost impact
+2. Focus first on functions with zero invocations but significant memory allocations
+3. Consider reducing memory allocations for rarely invoked functions
+4. Remove functions that have been idle for extended periods
+
+### Example 
+
+For a Lambda function with:
+- 10,000 invocations per month
+- 200ms average duration
+- 512MB memory allocation
+
+The calculation would be:
+- Request cost: 10,000 × $0.20 / 1,000,000 = $0.002
+- GB-seconds: 10,000 × (200/1000) × (512/1024) = 1,000
+- Compute cost: 1,000 × $0.0000166667 = $0.0167
+- Total monthly cost: $0.002 + $0.0167 = $0.0187 (approximately 2 cents) 
