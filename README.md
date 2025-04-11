@@ -106,6 +106,7 @@ This tool uses the AWS SDK's default credential chain:
 | EC2        | ✅ Supported | Stopped EC2 instances          | -      |
 | EBS        | ✅ Supported | Unattached EBS volumes         | Not available IOPS and throughput calculation, Only available volume size |
 | S3         | ✅ Supported | Idle S3 buckets                | Empty buckets, buckets with no recent modifications or API activity |
+| Lambda     | ✅ Supported | Idle Lambda functions          | Functions with no invocations or minimal usage in last 30 days |
 | ELB        | ⏳ Planned   | Load balancers with no targets | -      |
 | EC2 EIP    | ⏳ Planned   | Non-attached Elastic IPs       | -      |
 
