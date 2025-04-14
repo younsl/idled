@@ -107,8 +107,8 @@ This tool uses the AWS SDK's default credential chain:
 | EBS        | ✅ Supported | Unattached EBS volumes         | Not available IOPS and throughput calculation, Only available volume size |
 | S3         | ✅ Supported | Idle S3 buckets                | Empty buckets, buckets with no recent modifications or API activity |
 | Lambda     | ✅ Supported | Idle Lambda functions          | Functions with no invocations or minimal usage in last 30 days |
+| EIP        | ✅ Supported | Unattached Elastic IPs         | -      |
 | ELB        | ⏳ Planned   | Load balancers with no targets | -      |
-| EC2 EIP    | ⏳ Planned   | Non-attached Elastic IPs       | -      |
 
 ## Documentation
 
@@ -134,22 +134,3 @@ This feature helps teams identify idle resources with the highest cost impact, p
 ## Contributing
 
 Contributions are welcome! Feel free to submit pull requests for new features, bug fixes, or documentation improvements. Your contributions help make idled better for everyone.
-
-## 지원 서비스
-
-현재 다음 AWS 서비스를 스캔할 수 있습니다:
-
-- **EC2**: 중지된 EC2 인스턴스
-- **EBS**: 연결되지 않은 EBS 볼륨
-- **S3**: 액세스되지 않은 S3 버킷
-- **Lambda**: 호출되지 않은 Lambda 함수 
-- **EIP**: 연결되지 않은 Elastic IP 주소
-
-### 특정 서비스 스캔
-
-여러 서비스를 한 번에 스캔할 수 있습니다:
-
-```bash
-# 중지된 EC2 인스턴스와 미연결 Elastic IP 주소를 스캔
-idled --services ec2,eip
-```
