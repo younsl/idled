@@ -31,13 +31,14 @@ var (
 		"ebs":    true,
 		"s3":     true,
 		"lambda": true,
+		"eip":    true,
 	}
 )
 
 // startResourceSpinner creates and starts a spinner with a message for the given service
 func startResourceSpinner(service string) *spinner.Spinner {
 	s := spinner.New(spinner.CharSets[9], 200*time.Millisecond)
-	s.Suffix = fmt.Sprintf(" Analyzing %s resources...", service)
+	s.Suffix = fmt.Sprintf(" Analyzing %s resources ...", service)
 	// Don't set FinalMSG here as it will be set dynamically based on scan time
 	s.Start()
 	return s
@@ -117,6 +118,8 @@ and displays the results in a table format.`,
 					processS3(validRegions)
 				case "lambda":
 					processLambda(validRegions)
+				case "eip":
+					processEIP(validRegions)
 				// Add more services here in the future
 				default:
 					// This should never happen due to earlier checks
@@ -154,7 +157,7 @@ and displays the results in a table format.`,
 
 // processEC2 handles the scanning of EC2 instances
 func processEC2(regions []string) {
-	fmt.Println("Starting EC2 scan...")
+	fmt.Println("Starting EC2 scan ...")
 	scanStartTime := time.Now()
 
 	// Start the spinner
@@ -193,8 +196,17 @@ func processEC2(regions []string) {
 	// Calculate scan duration
 	scanDuration := time.Since(scanStartTime)
 
-	// Set completion message with scan time
-	s.FinalMSG = fmt.Sprintf("✓ EC2 resources analyzed - Completed in %.2f seconds\n", scanDuration.Seconds())
+	// Process results to get total count
+	var allStoppedInstances []models.InstanceInfo
+	for _, result := range allInstances {
+		if result.err == nil {
+			allStoppedInstances = append(allStoppedInstances, result.instances...)
+		}
+	}
+
+	// Set completion message with scan time and resource count
+	s.FinalMSG = fmt.Sprintf("✓ [%d instances found] EC2 resources analyzed - Completed in %.2f seconds\n",
+		len(allStoppedInstances), scanDuration.Seconds())
 	s.Stop() // Stop the spinner when done
 
 	// Display API init message if any
@@ -202,8 +214,8 @@ func processEC2(regions []string) {
 		fmt.Println(msg)
 	}
 
-	// Process results
-	var allStoppedInstances []models.InstanceInfo
+	// Process results for errors
+	allStoppedInstances = []models.InstanceInfo{} // Reset to re-process
 
 	// Process results from each region
 	for _, result := range allInstances {
@@ -221,7 +233,7 @@ func processEC2(regions []string) {
 
 // processEBS handles the scanning of available EBS volumes
 func processEBS(regions []string) {
-	fmt.Println("Starting EBS scan...")
+	fmt.Println("Starting EBS scan ...")
 	scanStartTime := time.Now()
 
 	// Start the spinner
@@ -260,8 +272,17 @@ func processEBS(regions []string) {
 	// Calculate scan duration
 	scanDuration := time.Since(scanStartTime)
 
-	// Set completion message with scan time
-	s.FinalMSG = fmt.Sprintf("✓ EBS resources analyzed - Completed in %.2f seconds\n", scanDuration.Seconds())
+	// Process results to get total count
+	var allAvailableVolumes []models.VolumeInfo
+	for _, result := range allVolumes {
+		if result.err == nil {
+			allAvailableVolumes = append(allAvailableVolumes, result.volumes...)
+		}
+	}
+
+	// Set completion message with scan time and resource count
+	s.FinalMSG = fmt.Sprintf("✓ [%d volumes found] EBS resources analyzed - Completed in %.2f seconds\n",
+		len(allAvailableVolumes), scanDuration.Seconds())
 	s.Stop() // Stop the spinner when done
 
 	// Display API init message if any
@@ -269,8 +290,8 @@ func processEBS(regions []string) {
 		fmt.Println(msg)
 	}
 
-	// Process results
-	var allAvailableVolumes []models.VolumeInfo
+	// Process results for errors
+	allAvailableVolumes = []models.VolumeInfo{} // Reset to re-process
 
 	// Process results from each region
 	for _, result := range allVolumes {
@@ -288,7 +309,7 @@ func processEBS(regions []string) {
 
 // processS3 handles the scanning of idle S3 buckets
 func processS3(regions []string) {
-	fmt.Println("Starting S3 scan...")
+	fmt.Println("Starting S3 scan ...")
 	scanStartTime := time.Now()
 
 	// Start the spinner
@@ -327,8 +348,17 @@ func processS3(regions []string) {
 	// Calculate scan duration
 	scanDuration := time.Since(scanStartTime)
 
-	// Set completion message with scan time
-	s.FinalMSG = fmt.Sprintf("✓ S3 resources analyzed - Completed in %.2f seconds\n", scanDuration.Seconds())
+	// Process results to get total count
+	var allIdleBuckets []models.BucketInfo
+	for _, result := range allBuckets {
+		if result.err == nil {
+			allIdleBuckets = append(allIdleBuckets, result.buckets...)
+		}
+	}
+
+	// Set completion message with scan time and resource count
+	s.FinalMSG = fmt.Sprintf("✓ [%d buckets found] S3 resources analyzed - Completed in %.2f seconds\n",
+		len(allIdleBuckets), scanDuration.Seconds())
 	s.Stop() // Stop the spinner when done
 
 	// Display API init message if any
@@ -336,8 +366,8 @@ func processS3(regions []string) {
 		fmt.Println(msg)
 	}
 
-	// Process results
-	var allIdleBuckets []models.BucketInfo
+	// Process results for errors
+	allIdleBuckets = []models.BucketInfo{} // Reset to re-process
 
 	// Process results from each region
 	for _, result := range allBuckets {
@@ -348,9 +378,6 @@ func processS3(regions []string) {
 		allIdleBuckets = append(allIdleBuckets, result.buckets...)
 	}
 
-	// Calculate scan duration
-	scanDuration = time.Since(scanStartTime)
-
 	// Display as table
 	formatter.PrintBucketsTable(allIdleBuckets, scanStartTime, scanDuration)
 	formatter.PrintBucketsSummary(allIdleBuckets)
@@ -360,6 +387,9 @@ func processS3(regions []string) {
 func processLambda(regions []string) {
 	fmt.Println("Starting Lambda scan...")
 	scanStartTime := time.Now()
+
+	// Start the spinner
+	s := startResourceSpinner("Lambda")
 
 	// Slice to store results
 	allFunctions := make([]struct {
@@ -393,10 +423,22 @@ func processLambda(regions []string) {
 
 	// Calculate scan duration
 	scanDuration := time.Since(scanStartTime)
-	fmt.Printf("\n✓ Lambda scan completed in %.2f seconds\n\n", scanDuration.Seconds())
 
-	// Process results
+	// Process results to get total count
 	var allIdleFunctions []models.LambdaFunctionInfo
+	for _, result := range allFunctions {
+		if result.err == nil {
+			allIdleFunctions = append(allIdleFunctions, result.functions...)
+		}
+	}
+
+	// Set completion message with scan time and resource count
+	s.FinalMSG = fmt.Sprintf("✓ [%d functions found] Lambda resources analyzed - Completed in %.2f seconds\n",
+		len(allIdleFunctions), scanDuration.Seconds())
+	s.Stop() // Stop the spinner when done
+
+	// Process results for errors
+	allIdleFunctions = []models.LambdaFunctionInfo{} // Reset to re-process
 
 	// Process results from each region
 	for _, result := range allFunctions {
@@ -408,5 +450,77 @@ func processLambda(regions []string) {
 	}
 
 	// Display as table
-	formatter.FormatLambdaTable(allIdleFunctions)
+	formatter.PrintLambdaTable(allIdleFunctions, scanStartTime, scanDuration)
+	formatter.PrintLambdaSummary(allIdleFunctions)
+}
+
+// processEIP handles the scanning of unattached Elastic IPs
+func processEIP(regions []string) {
+	fmt.Println("Starting Elastic IP scan ...")
+	scanStartTime := time.Now()
+
+	// Start the spinner
+	s := startResourceSpinner("Elastic IP")
+
+	// Slice to store results
+	allEIPs := make([]struct {
+		eips   []models.EIPInfo
+		err    error
+		region string
+	}, len(regions))
+
+	// Process each region in parallel
+	var wg sync.WaitGroup
+	for i, region := range regions {
+		wg.Add(1)
+		go func(idx int, r string) {
+			defer wg.Done()
+
+			client, err := aws.NewEIPClient(r)
+			if err != nil {
+				allEIPs[idx].err = err
+				allEIPs[idx].region = r
+				return
+			}
+
+			eips, err := client.GetUnattachedEIPs()
+			allEIPs[idx].eips = eips
+			allEIPs[idx].err = err
+			allEIPs[idx].region = r
+		}(i, region)
+	}
+
+	wg.Wait()
+
+	// Calculate scan duration
+	scanDuration := time.Since(scanStartTime)
+
+	// Process results to get total count
+	var allUnattachedEIPs []models.EIPInfo
+	for _, result := range allEIPs {
+		if result.err == nil {
+			allUnattachedEIPs = append(allUnattachedEIPs, result.eips...)
+		}
+	}
+
+	// Set completion message with scan time and resource count
+	s.FinalMSG = fmt.Sprintf("✓ [%d EIPs found] Elastic IP resources analyzed - Completed in %.2f seconds\n",
+		len(allUnattachedEIPs), scanDuration.Seconds())
+	s.Stop() // Stop the spinner when done
+
+	// Process results for errors
+	allUnattachedEIPs = []models.EIPInfo{} // Reset to re-process
+
+	// Process results from each region
+	for _, result := range allEIPs {
+		if result.err != nil {
+			fmt.Printf("Error in region %s: %v\n", result.region, result.err)
+			continue
+		}
+		allUnattachedEIPs = append(allUnattachedEIPs, result.eips...)
+	}
+
+	// Display as table
+	formatter.PrintEIPsTable(allUnattachedEIPs, scanStartTime, scanDuration)
+	formatter.PrintEIPsSummary(allUnattachedEIPs)
 }
