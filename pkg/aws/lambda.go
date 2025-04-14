@@ -50,9 +50,7 @@ func (c *LambdaClient) SetIdleThreshold(days int) {
 
 // GetIdleFunctions returns a list of Lambda functions with their usage metrics
 func (c *LambdaClient) GetIdleFunctions() ([]models.LambdaFunctionInfo, error) {
-	fmt.Printf("Scanning Lambda functions in %s...\n", c.region)
-
-	// 단계 1: Lambda 함수 목록 가져오기
+	// Get all Lambda functions in the region
 	var functions []lambdaTypes.FunctionConfiguration
 	var nextMarker *string
 	var functionInfos []models.LambdaFunctionInfo
@@ -76,28 +74,26 @@ func (c *LambdaClient) GetIdleFunctions() ([]models.LambdaFunctionInfo, error) {
 	}
 
 	totalFunctions := len(functions)
-	fmt.Printf("Found %d Lambda functions in %s\n", totalFunctions, c.region)
-
 	if totalFunctions == 0 {
 		return functionInfos, nil
 	}
 
-	// 단계 2: 진행 상태 표시용 스피너 생성
-	fmt.Printf("Analyzing Lambda functions usage metrics (this may take a while)...\n")
-
-	// 단일 스피너 사용, 일관된 위치에 표시
+	// Create a silent spinner just for local progress tracking
 	sp := spinner.New(spinner.CharSets[9], 100*time.Millisecond)
 	sp.Suffix = fmt.Sprintf(" Progress: 0/%d functions", totalFunctions)
-	sp.Start()
-	defer sp.Stop()
 
-	// 각 함수 분석, 진행률과 현재 함수 이름을 표시
+	// Don't display this spinner to avoid conflict with the main spinner
+	// Instead, we'll use it to track progress silently
+	// sp.Start()
+	// defer sp.Stop()
+
+	// Process each function, tracking progress
 	processedCount := 0
 	lastPercentage := 0
 	currentFunctionName := ""
 
 	for _, function := range functions {
-		// 현재 처리 중인 함수 이름 업데이트 (모든 함수마다 표시 업데이트)
+		// Update current function name (for progress tracking)
 		if function.FunctionName != nil {
 			currentFunctionName = *function.FunctionName
 			sp.Lock()
@@ -115,11 +111,11 @@ func (c *LambdaClient) GetIdleFunctions() ([]models.LambdaFunctionInfo, error) {
 
 		functionInfos = append(functionInfos, functionInfo)
 
-		// 진행률 업데이트
+		// Update progress
 		processedCount++
 		currentPercentage := (processedCount * 100) / totalFunctions
 
-		// 진행률이 10% 포인트 증가할 때만 퍼센트 정보 추가 (깜빡임 줄이기)
+		// Update progress info every 10% increment
 		if currentPercentage >= lastPercentage+10 || processedCount == totalFunctions {
 			sp.Lock()
 			sp.Suffix = fmt.Sprintf(" %d/%d functions completed (%d%%) - Last: %s",
@@ -129,17 +125,10 @@ func (c *LambdaClient) GetIdleFunctions() ([]models.LambdaFunctionInfo, error) {
 		}
 	}
 
-	sp.FinalMSG = fmt.Sprintf("✓ Completed analysis of %d Lambda functions\n", totalFunctions)
+	// No final message needed as we're using the main spinner's message
+	// sp.FinalMSG = fmt.Sprintf("✓ Completed analysis of %d Lambda functions\n", totalFunctions)
 
 	return functionInfos, nil
-}
-
-// min returns the smaller of x or y
-func min(x, y int) int {
-	if x < y {
-		return x
-	}
-	return y
 }
 
 // analyzeFunction gathers information and metrics for a single Lambda function
@@ -178,8 +167,7 @@ func (c *LambdaClient) analyzeFunction(function lambdaTypes.FunctionConfiguratio
 	// Get CloudWatch metrics for invocations
 	invocations, errors, lastInvocation, duration, err := c.getFunctionMetrics(functionName)
 	if err != nil {
-		// Just log the error and continue - this is non-critical
-		fmt.Printf("Warning: Could not retrieve CloudWatch metrics for function %s: %v\n", functionName, err)
+		// Just continue with what we have - this is non-critical
 	} else {
 		functionInfo.InvocationsLast30Days = invocations
 		functionInfo.ErrorsLast30Days = errors
