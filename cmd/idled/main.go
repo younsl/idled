@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -18,8 +19,8 @@ import (
 
 // Version information
 const (
-	Version   = "0.1.0"
-	BuildDate = "2023-04-09"
+	Version   = "0.3.0"
+	BuildDate = "2025-04-14"
 )
 
 var (
@@ -35,6 +36,15 @@ var (
 	}
 )
 
+// Define service descriptions for help text
+var serviceDescriptions = map[string]string{
+	"ec2":    "Find stopped EC2 instances",
+	"ebs":    "Find unattached EBS volumes",
+	"s3":     "Find idle S3 buckets",
+	"lambda": "Find idle Lambda functions",
+	"eip":    "Find unattached Elastic IP addresses",
+}
+
 // startResourceSpinner creates and starts a spinner with a message for the given service
 func startResourceSpinner(service string) *spinner.Spinner {
 	s := spinner.New(spinner.CharSets[9], 200*time.Millisecond)
@@ -45,6 +55,8 @@ func startResourceSpinner(service string) *spinner.Spinner {
 }
 
 func main() {
+	var showServiceList bool
+
 	rootCmd := &cobra.Command{
 		Use:   "idled",
 		Short: "CLI tool to find idle AWS resources",
@@ -54,6 +66,33 @@ and displays the results in a table format.`,
 			// If version flag is set, print version info and exit
 			if showVersion {
 				fmt.Printf("idled version %s (built: %s)\n", Version, BuildDate)
+				return
+			}
+
+			// If list services flag is set, show available services and exit
+			if showServiceList {
+				fmt.Println("Available services:")
+
+				// Get a sorted list of supported services for consistent output
+				var serviceList []string
+				for service, isSupported := range supportedServices {
+					if isSupported {
+						serviceList = append(serviceList, service)
+					}
+				}
+				sort.Strings(serviceList)
+
+				// Print each service with its description
+				for _, service := range serviceList {
+					description, ok := serviceDescriptions[service]
+					if !ok {
+						description = "No description available"
+					}
+					fmt.Printf("  %-8s - %s\n", service, description)
+				}
+
+				fmt.Println("\nExample usage:")
+				fmt.Printf("  %s --services %s\n", os.Args[0], strings.Join(serviceList[:min(3, len(serviceList))], ","))
 				return
 			}
 
@@ -134,6 +173,9 @@ and displays the results in a table format.`,
 
 	// Version flag
 	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Show version information")
+
+	// Service list flag (show available services)
+	rootCmd.Flags().BoolVarP(&showServiceList, "list-services", "l", false, "List available services")
 
 	// Initialize default regions
 	defaultRegions := []string{utils.GetDefaultRegion()}
@@ -523,4 +565,12 @@ func processEIP(regions []string) {
 	// Display as table
 	formatter.PrintEIPsTable(allUnattachedEIPs, scanStartTime, scanDuration)
 	formatter.PrintEIPsSummary(allUnattachedEIPs)
+}
+
+// min returns the smaller of x or y
+func min(x, y int) int {
+	if x < y {
+		return x
+	}
+	return y
 }
