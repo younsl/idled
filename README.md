@@ -111,6 +111,7 @@ This tool uses the AWS SDK's default credential chain:
 | EIP     | ✅     | Unattached Elastic IPs | Detects unattached Elastic IPs |
 | IAM     | ✅     | Idle IAM users, roles, and policies | Detects unused IAM resources |
 | Config  | ✅     | Idle Config rules, recorders, and delivery channels | Detects unused Config resources |
+| ELB     | ⏳ Planned   | Load balancers with no targets | -      |
 
 ## Documentation
 
