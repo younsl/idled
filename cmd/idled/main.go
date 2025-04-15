@@ -19,8 +19,9 @@ import (
 
 // Version information
 const (
-	Version   = "0.3.0"
-	BuildDate = "2025-04-14"
+	Version        = "0.3.0"
+	BuildDate      = "2025-04-14"
+	DefaultService = "ec2"
 )
 
 var (
@@ -86,13 +87,29 @@ and displays the results in a table format.`,
 				}
 				sort.Strings(serviceList)
 
+				// Define default services here as well for checking
+				defaultServices := []string{DefaultService}
+
 				// Print each service with its description
 				for _, service := range serviceList {
 					description, ok := serviceDescriptions[service]
 					if !ok {
 						description = "No description available"
 					}
-					fmt.Printf("  %-8s - %s\n", service, description)
+					// Check if the service is a default service
+					isDefault := false
+					for _, ds := range defaultServices {
+						if service == ds {
+							isDefault = true
+							break
+						}
+					}
+
+					if isDefault {
+						fmt.Printf("  %-8s - %s (default)\n", service, description)
+					} else {
+						fmt.Printf("  %-8s - %s\n", service, description)
+					}
 				}
 
 				fmt.Println("\nExample usage:")
@@ -122,7 +139,7 @@ and displays the results in a table format.`,
 
 			// Use default service if none specified
 			if len(services) == 0 {
-				services = []string{"ec2"}
+				services = []string{DefaultService}
 			}
 
 			// Validate services
@@ -193,7 +210,7 @@ and displays the results in a table format.`,
 		fmt.Sprintf("AWS regions to check (comma separated, default: %s)", strings.Join(defaultRegions, ", ")))
 
 	// Initialize default services
-	defaultServices := []string{"ec2"}
+	defaultServices := []string{DefaultService}
 
 	// Service flags (long and short forms)
 	rootCmd.Flags().StringSliceVarP(&services, "services", "s", nil,
