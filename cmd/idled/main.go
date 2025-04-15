@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -8,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/briandowns/spinner"
 	"github.com/spf13/cobra"
 	"github.com/younsl/idled/internal/models"
@@ -36,6 +38,7 @@ var (
 		"eip":    true,
 		"iam":    true,
 		"config": true,
+		"elb":    true,
 	}
 )
 
@@ -48,6 +51,7 @@ var serviceDescriptions = map[string]string{
 	"eip":    "Find unattached Elastic IP addresses",
 	"iam":    "Find idle IAM users, roles, and policies",
 	"config": "Find idle AWS Config rules, recorders, and delivery channels",
+	"elb":    "Find idle Elastic Load Balancers (ALB, NLB)",
 }
 
 // startResourceSpinner creates and starts a spinner with a message for the given service
@@ -184,6 +188,8 @@ and displays the results in a table format.`,
 					processIAM(validRegions)
 				case "config":
 					processConfig(validRegions)
+				case "elb":
+					processELB(validRegions)
 				// Add more services here in the future
 				default:
 					// This should never happen due to earlier checks
@@ -768,6 +774,79 @@ func processConfig(regions []string) {
 
 	// Calculate scan duration
 	fmt.Printf("\n✓ AWS Config resources analyzed - Completed in %.2f seconds\n\n", scanDuration.Seconds())
+}
+
+// processELB fetches idle ELB resources and prints them
+func processELB(regions []string) {
+	// Align start message with other resources
+	fmt.Println("Starting ELB (ALB/NLB) scan ...")
+	scanStartTime := time.Now()
+
+	// Start the spinner
+	s := startResourceSpinner("ELB (v2)")
+
+	// Slice to store results from all regions
+	allELBsResult := make([]struct {
+		elbs   []models.ELBResource
+		err    error
+		region string
+	}, len(regions))
+
+	// Process each region in parallel
+	var wg sync.WaitGroup
+	for i, region := range regions {
+		wg.Add(1)
+		go func(idx int, r string) {
+			defer wg.Done()
+
+			cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(r))
+			if err != nil {
+				allELBsResult[idx].err = fmt.Errorf("failed to load AWS config for region %s: %w", r, err)
+				allELBsResult[idx].region = r
+				return
+			}
+
+			scanner := aws.NewELBScanner(cfg) // Use the NewELBScanner
+			elbs, err := scanner.GetIdleELBs(context.TODO(), r)
+			allELBsResult[idx].elbs = elbs
+			allELBsResult[idx].err = err // Store error if GetIdleELBs fails
+			allELBsResult[idx].region = r
+		}(i, region)
+	}
+
+	wg.Wait()
+
+	// Calculate scan duration
+	scanDuration := time.Since(scanStartTime)
+
+	// Process results to get total count
+	var combinedELBs []models.ELBResource
+	for _, result := range allELBsResult {
+		if result.err == nil {
+			combinedELBs = append(combinedELBs, result.elbs...)
+		}
+	}
+
+	// Set completion message with scan time and resource count
+	s.FinalMSG = fmt.Sprintf("✓ [%d ELBs found] ELB resources analyzed - Completed in %.2f seconds\n",
+		len(combinedELBs), scanDuration.Seconds())
+	s.Stop() // Stop the spinner when done
+
+	// Reset slice to process errors and display results
+	combinedELBs = []models.ELBResource{}
+
+	// Process results from each region, print errors
+	for _, result := range allELBsResult {
+		if result.err != nil {
+			fmt.Printf("Error scanning ELBs in region %s: %v\n", result.region, result.err)
+			continue
+		}
+		combinedELBs = append(combinedELBs, result.elbs...)
+	}
+
+	// Display as table
+	formatter.PrintELBTable(os.Stdout, combinedELBs)
+	formatter.PrintELBSummary(os.Stdout, combinedELBs)
 }
 
 // min returns the smaller of x or y

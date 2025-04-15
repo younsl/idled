@@ -75,6 +75,9 @@ idled --regions us-east-1,us-west-2
 
 Specify AWS services:
 
+> [!NOTE]
+> If the `-s` or `--services` flag is omitted, `idled` defaults to scanning **ec2** only.
+
 ```bash
 idled --services ebs
 idled --services ec2,ebs
@@ -102,16 +105,16 @@ This tool uses the AWS SDK's default credential chain:
 
 ## Supported Services
 
-| Service | Status | Resource | Remarks |
-|---------|--------|----------|---------|
-| EC2     | ✅     | Stopped EC2 instances | Detects stopped EC2 instances |
-| EBS     | ✅     | Unattached EBS volumes | Detects unattached EBS volumes |
-| S3      | ✅     | Idle S3 buckets | Detects idle S3 buckets |
-| Lambda  | ✅     | Idle Lambda functions | Detects idle Lambda functions |
-| EIP     | ✅     | Unattached Elastic IPs | Detects unattached Elastic IPs |
-| IAM     | ✅     | Idle IAM users, roles, and policies | Detects unused IAM resources |
-| Config  | ✅     | Idle Config rules, recorders, and delivery channels | Detects unused Config resources |
-| ELB     | ⏳ Planned   | Load balancers with no targets | -      |
+| Service | Status    | Resource | Remarks |
+|---------|-----------|----------|---------|
+| [EC2](docs/aws/ec2.md) | ✅ Supported | Stopped EC2 instances (Default) | Detects stopped EC2 instances |
+| [EBS](docs/aws/ebs.md) | ✅ Supported | Unattached EBS volumes | Detects unattached EBS volumes |
+| [S3](docs/aws/s3.md) | ✅ Supported | Idle S3 buckets | Detects idle S3 buckets |
+| [Lambda](docs/aws/lambda.md) | ✅ Supported | Idle Lambda functions | Detects idle Lambda functions |
+| [EIP](docs/aws/eip.md) | ✅ Supported | Unattached Elastic IPs | Detects unattached Elastic IPs |
+| [IAM](docs/aws/iam.md) | ✅ Supported | Idle IAM users, roles, and policies | Detects unused IAM resources |
+| [Config](docs/aws/config.md) | ✅ Supported | Idle Config rules, recorders, and delivery channels | Detects unused Config resources |
+| [ELB](docs/aws/elb.md) | ✅ Supported | Idle ALBs and NLBs with no targets or zero traffic in the last 14 days | Detects idle ALBs and NLBs |
 
 ## Documentation
 
