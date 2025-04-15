@@ -25,7 +25,7 @@ func FormatConfigRulesTable(writer io.Writer, rules []models.ConfigRuleInfo) {
 	})
 
 	// Create tabwriter for aligned output
-	w := tabwriter.NewWriter(writer, 0, 0, 3, ' ', tabwriter.TabIndent)
+	w := tabwriter.NewWriter(writer, 0, 0, 2, ' ', tabwriter.TabIndent)
 
 	// Print header
 	fmt.Fprintln(w, "RULE NAME\tRULE ID\tCUSTOM\tSTATUS\tCOMPLIANT\tEVALUATION MODE\tLAST ACTIVITY\tIDLE\tREGION")
@@ -113,7 +113,7 @@ func FormatConfigRecordersTable(writer io.Writer, recorders []models.ConfigRecor
 	})
 
 	// Create tabwriter for aligned output
-	w := tabwriter.NewWriter(writer, 0, 0, 3, ' ', tabwriter.TabIndent)
+	w := tabwriter.NewWriter(writer, 0, 0, 2, ' ', tabwriter.TabIndent)
 
 	// Print header
 	fmt.Fprintln(w, "RECORDER NAME\tSTATUS\tRESOURCE COVERAGE\tLAST ACTIVITY\tIDLE DAYS\tIDLE\tREGION")
@@ -186,7 +186,7 @@ func FormatConfigDeliveryChannelsTable(writer io.Writer, channels []models.Confi
 	})
 
 	// Create tabwriter for aligned output
-	w := tabwriter.NewWriter(writer, 0, 0, 3, ' ', tabwriter.TabIndent)
+	w := tabwriter.NewWriter(writer, 0, 0, 2, ' ', tabwriter.TabIndent)
 
 	// Print header
 	fmt.Fprintln(w, "CHANNEL NAME\tS3 BUCKET\tSNS TOPIC\tFREQUENCY\tLAST ACTIVITY\tIDLE DAYS\tIDLE\tREGION")
