@@ -115,15 +115,10 @@ This tool uses the AWS SDK's default credential chain:
 
 ## Documentation
 
-For more details about each resource detection, refer to the following documents:
+For more details about idled, please refer to the following documents:
 
-- [EC2 Instance Detection](docs/ec2.md)
-- [EBS Volume Detection](docs/ebs.md)
-- [S3 Bucket Detection](docs/s3.md)
-- [Lambda Function Detection](docs/lambda.md)
-- [EIP Detection](docs/eip.md)
-- [IAM Resource Detection](docs/iam.md)
-- [AWS Config Detection](docs/config.md)
+- [Cost Savings Calculation](docs/cost-savings-calculation.md)
+- [Project Structure](docs/project-structure.md)
 
 ## Implementation Details
 
