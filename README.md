@@ -79,7 +79,9 @@ Specify AWS services:
 idled --services ebs
 idled --services ec2,ebs
 idled --services s3
-idled --services ec2,ebs,s3
+idled --services lambda
+idled --services iam
+idled --services ec2,ebs,s3,lambda,iam
 ```
 
 Check CLI version:
@@ -108,6 +110,7 @@ This tool uses the AWS SDK's default credential chain:
 | S3         | ✅ Supported | Idle S3 buckets                | Empty buckets, buckets with no recent modifications or API activity |
 | Lambda     | ✅ Supported | Idle Lambda functions          | Functions with no invocations or minimal usage in last 30 days |
 | EIP        | ✅ Supported | Unattached Elastic IPs         | -      |
+| IAM        | ✅ Supported | Idle IAM users, roles, policies | Users and roles with no activity for 90+ days, unattached policies |
 | ELB        | ⏳ Planned   | Load balancers with no targets | -      |
 
 ## Documentation
