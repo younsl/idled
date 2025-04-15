@@ -14,7 +14,9 @@ idled/
 │       ├── ec2.go
 │       ├── ebs.go
 │       ├── s3.go
-│       └── iam.go
+│       ├── iam.go
+│       ├── config.go
+│       └── lambda.go
 ├── pkg/
 │   ├── aws/          # AWS API wrapper
 │   │   ├── ec2.go
@@ -22,6 +24,7 @@ idled/
 │   │   ├── s3.go
 │   │   ├── lambda.go
 │   │   ├── iam.go
+│   │   ├── config.go
 │   │   ├── ec2_pricing.go
 │   │   └── ebs_pricing.go
 │   ├── formatter/    # Output formatters
@@ -29,12 +32,14 @@ idled/
 │   │   ├── ebs_table.go
 │   │   ├── s3_table.go
 │   │   ├── lambda_table.go
-│   │   └── iam_table.go
+│   │   ├── iam_table.go
+│   │   └── config_table.go
 │   └── utils/        # Utility functions
 │       └── format.go
 ├── docs/             # Documentation
 │   ├── cost-savings-calculation.md
 │   ├── project-structure.md
+│   ├── config.md
 │   └── iam.md
 ├── Makefile          # Build automation
 ├── go.mod
@@ -186,3 +191,41 @@ The IAM idle resource detection is implemented with the following components:
 - Shows real-time progress for IAM operations
 - Displays the current stage of analysis and overall completion percentage
 - Indicates resource count and processing status for each resource type
+
+## Config Implementation Details
+
+The AWS Config resource detection is implemented with the following components:
+
+### 1. Data Model (`internal/models/config.go`)
+
+- Defines the data structures for Config Rules, Recorders, and Delivery Channels
+- Includes fields for tracking:
+  - Resource identifiers (name, ARN, ID)
+  - Creation and last modified timestamps
+  - Active/inactive status and compliance status
+  - Configuration settings (resource types, delivery settings)
+  - Activity metrics and idle status determination
+
+### 2. AWS Client (`pkg/aws/config.go`)
+
+- Implements AWS Config API operations using AWS SDK v2
+- Provides methods to:
+  - List all Config Rules, Recorders, and Delivery Channels in each region
+  - Analyze rule evaluation status and compliance
+  - Check recorder status and configuration
+  - Examine delivery channel settings and activity
+  - Calculate idle days based on last activity times
+  - Determine if resources are idle based on configurable criteria
+
+### 3. Output Formatter (`pkg/formatter/config_table.go`)
+
+- Displays Config resource information in tabular format
+- Shows key metrics like compliance status, recording status, and idle days
+- Groups resources by type and sorts by activity status
+- Provides summary statistics for each resource type
+
+### 4. Progress Indication
+
+- Shows real-time progress for Config operations
+- Displays the current region being processed
+- Provides overall status and resource count metrics
