@@ -33,6 +33,7 @@ var (
 		"s3":     true,
 		"lambda": true,
 		"eip":    true,
+		"iam":    true,
 	}
 )
 
@@ -43,6 +44,7 @@ var serviceDescriptions = map[string]string{
 	"s3":     "Find idle S3 buckets",
 	"lambda": "Find idle Lambda functions",
 	"eip":    "Find unattached Elastic IP addresses",
+	"iam":    "Find idle IAM users, roles, and policies",
 }
 
 // startResourceSpinner creates and starts a spinner with a message for the given service
@@ -159,6 +161,8 @@ and displays the results in a table format.`,
 					processLambda(validRegions)
 				case "eip":
 					processEIP(validRegions)
+				case "iam":
+					processIAM(validRegions)
 				// Add more services here in the future
 				default:
 					// This should never happen due to earlier checks
@@ -565,6 +569,54 @@ func processEIP(regions []string) {
 	// Display as table
 	formatter.PrintEIPsTable(allUnattachedEIPs, scanStartTime, scanDuration)
 	formatter.PrintEIPsSummary(allUnattachedEIPs)
+}
+
+// processIAM handles the scanning of IAM resources
+func processIAM(regions []string) {
+	fmt.Println("Starting IAM scan ...")
+	scanStartTime := time.Now()
+
+	// IAM is a global service, so we only need to process one region
+	region := regions[0]
+	fmt.Printf("Note: IAM is a global service. Region parameter '%s' will be used for configuration only.\n", region)
+
+	// Initialize IAM client
+	client, err := aws.NewIAMClient(region)
+	if err != nil {
+		fmt.Printf("Error initializing IAM client: %v\n", err)
+		return
+	}
+
+	// Process IAM users
+	users, err := client.GetIdleUsers()
+	if err != nil {
+		fmt.Printf("Error getting IAM users: %v\n", err)
+	} else {
+		fmt.Println("\nIAM Users:")
+		formatter.FormatIAMUserTable(os.Stdout, users)
+	}
+
+	// Process IAM roles after users have been processed
+	roles, err := client.GetIdleRoles()
+	if err != nil {
+		fmt.Printf("Error getting IAM roles: %v\n", err)
+	} else {
+		fmt.Println("\nIAM Roles:")
+		formatter.FormatIAMRoleTable(os.Stdout, roles)
+	}
+
+	// Process IAM policies after roles have been processed
+	policies, err := client.GetIdlePolicies()
+	if err != nil {
+		fmt.Printf("Error getting IAM policies: %v\n", err)
+	} else {
+		fmt.Println("\nIAM Policies:")
+		formatter.FormatIAMPolicyTable(os.Stdout, policies)
+	}
+
+	// Calculate scan duration
+	scanDuration := time.Since(scanStartTime)
+	fmt.Printf("\n✓ IAM resources analyzed - Completed in %.2f seconds\n\n", scanDuration.Seconds())
 }
 
 // min returns the smaller of x or y

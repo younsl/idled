@@ -13,25 +13,29 @@ idled/
 │   └── models/       # Internal data models
 │       ├── ec2.go
 │       ├── ebs.go
-│       └── s3.go
+│       ├── s3.go
+│       └── iam.go
 ├── pkg/
 │   ├── aws/          # AWS API wrapper
 │   │   ├── ec2.go
 │   │   ├── ebs.go
 │   │   ├── s3.go
 │   │   ├── lambda.go
+│   │   ├── iam.go
 │   │   ├── ec2_pricing.go
 │   │   └── ebs_pricing.go
 │   ├── formatter/    # Output formatters
 │   │   ├── ec2_table.go
 │   │   ├── ebs_table.go
 │   │   ├── s3_table.go
-│   │   └── lambda_table.go
+│   │   ├── lambda_table.go
+│   │   └── iam_table.go
 │   └── utils/        # Utility functions
 │       └── format.go
 ├── docs/             # Documentation
 │   ├── cost-savings-calculation.md
-│   └── project-structure.md
+│   ├── project-structure.md
+│   └── iam.md
 ├── Makefile          # Build automation
 ├── go.mod
 ├── go.sum
@@ -143,3 +147,42 @@ The Lambda idle function detection is implemented with the following components:
 - Shows real-time progress for Lambda analysis operations
 - Displays current function being analyzed and overall progress percentage
 - Provides clear feedback for long-running operations where many Lambda functions are being analyzed
+
+## IAM Implementation Details
+
+The IAM idle resource detection is implemented with the following components:
+
+### 1. Data Model (`internal/models/iam.go`)
+
+- Defines the data structures for IAM users, roles, and policies
+- Includes fields for tracking:
+  - Resource identifiers (name, ARN, ID)
+  - Age and creation dates
+  - Last activity timestamps
+  - Security configurations (MFA, access keys)
+  - Attachment and relationship information
+  - Idle status determination
+
+### 2. AWS Client (`pkg/aws/iam.go`)
+
+- Implements IAM API operations using AWS SDK v2
+- Provides methods to:
+  - List all IAM users, roles, and policies in the account
+  - Analyze user activity through login history and access key usage
+  - Analyze role usage and determine if service-linked or cross-account
+  - Extract policy attachment and version information
+  - Calculate idle days based on creation and last activity dates
+  - Determine if resources are idle based on configurable criteria
+
+### 3. Output Formatter (`pkg/formatter/iam_table.go`)
+
+- Displays IAM resource information in tabular format
+- Shows key metrics like resource age, last activity, and security configurations
+- Groups and sorts resources by idle status for better visibility
+- Provides summary statistics for each resource type
+
+### 4. Progress Indication
+
+- Shows real-time progress for IAM operations
+- Displays the current stage of analysis and overall completion percentage
+- Indicates resource count and processing status for each resource type
