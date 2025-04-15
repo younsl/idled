@@ -34,6 +34,7 @@ var (
 		"lambda": true,
 		"eip":    true,
 		"iam":    true,
+		"config": true,
 	}
 )
 
@@ -45,6 +46,7 @@ var serviceDescriptions = map[string]string{
 	"lambda": "Find idle Lambda functions",
 	"eip":    "Find unattached Elastic IP addresses",
 	"iam":    "Find idle IAM users, roles, and policies",
+	"config": "Find idle AWS Config rules, recorders, and delivery channels",
 }
 
 // startResourceSpinner creates and starts a spinner with a message for the given service
@@ -163,6 +165,8 @@ and displays the results in a table format.`,
 					processEIP(validRegions)
 				case "iam":
 					processIAM(validRegions)
+				case "config":
+					processConfig(validRegions)
 				// Add more services here in the future
 				default:
 					// This should never happen due to earlier checks
@@ -617,6 +621,136 @@ func processIAM(regions []string) {
 	// Calculate scan duration
 	scanDuration := time.Since(scanStartTime)
 	fmt.Printf("\n✓ IAM resources analyzed - Completed in %.2f seconds\n\n", scanDuration.Seconds())
+}
+
+// processConfig handles the scanning of AWS Config resources
+func processConfig(regions []string) {
+	fmt.Println("Starting AWS Config scan ...")
+	scanStartTime := time.Now()
+
+	// Start the spinner
+	s := startResourceSpinner("Config")
+
+	// Process each region
+	var wg sync.WaitGroup
+	results := make([]struct {
+		rules     []models.ConfigRuleInfo
+		recorders []models.ConfigRecorderInfo
+		channels  []models.ConfigDeliveryChannelInfo
+		region    string
+		err       error
+	}, len(regions))
+
+	for i, region := range regions {
+		wg.Add(1)
+		go func(idx int, r string) {
+			defer wg.Done()
+
+			// Initialize AWS Config client
+			client, err := aws.NewConfigClient(r)
+			if err != nil {
+				fmt.Printf("Error initializing AWS Config client for region %s: %v\n", r, err)
+				results[idx].err = err
+				results[idx].region = r
+				return
+			}
+
+			// Get all Config rules
+			rules, err := client.GetAllConfigRules()
+			if err != nil {
+				fmt.Printf("Error getting AWS Config rules for region %s: %v\n", r, err)
+			}
+			results[idx].rules = rules
+
+			// Get all Config recorders
+			recorders, err := client.GetAllConfigRecorders()
+			if err != nil {
+				fmt.Printf("Error getting AWS Config recorders for region %s: %v\n", r, err)
+			}
+			results[idx].recorders = recorders
+
+			// Get all Config delivery channels
+			channels, err := client.GetAllConfigDeliveryChannels()
+			if err != nil {
+				fmt.Printf("Error getting AWS Config delivery channels for region %s: %v\n", r, err)
+			}
+			results[idx].channels = channels
+
+			results[idx].region = r
+		}(i, region)
+	}
+
+	wg.Wait()
+
+	// Calculate scan duration
+	scanDuration := time.Since(scanStartTime)
+
+	// Combine results for total count
+	var allRules []models.ConfigRuleInfo
+	var allRecorders []models.ConfigRecorderInfo
+	var allChannels []models.ConfigDeliveryChannelInfo
+
+	for _, result := range results {
+		if result.err == nil {
+			allRules = append(allRules, result.rules...)
+			allRecorders = append(allRecorders, result.recorders...)
+			allChannels = append(allChannels, result.channels...)
+		}
+	}
+
+	// Total count of all Config resources
+	totalCount := len(allRules) + len(allRecorders) + len(allChannels)
+
+	// Set completion message with scan time and resource count
+	s.FinalMSG = fmt.Sprintf("✓ [%d resources found] AWS Config resources analyzed - Completed in %.2f seconds\n",
+		totalCount, scanDuration.Seconds())
+	s.Stop() // Stop the spinner when done
+
+	// Display API init message if any
+	if msg := pricing.GetInitMessage(); msg != "" {
+		fmt.Println(msg)
+	}
+
+	// Reset for error handling
+	allRules = []models.ConfigRuleInfo{}
+	allRecorders = []models.ConfigRecorderInfo{}
+	allChannels = []models.ConfigDeliveryChannelInfo{}
+
+	// Process results from each region and handle errors
+	for _, result := range results {
+		if result.err != nil {
+			fmt.Printf("Error in region %s: %v\n", result.region, result.err)
+			continue
+		}
+		allRules = append(allRules, result.rules...)
+		allRecorders = append(allRecorders, result.recorders...)
+		allChannels = append(allChannels, result.channels...)
+	}
+
+	// Display results
+	if len(allRules) > 0 {
+		fmt.Println("\nAWS Config Rules:")
+		formatter.FormatConfigRulesTable(os.Stdout, allRules)
+	} else {
+		fmt.Println("\nNo AWS Config rules found.")
+	}
+
+	if len(allRecorders) > 0 {
+		fmt.Println("\nAWS Config Recorders:")
+		formatter.FormatConfigRecordersTable(os.Stdout, allRecorders)
+	} else {
+		fmt.Println("\nNo AWS Config recorders found.")
+	}
+
+	if len(allChannels) > 0 {
+		fmt.Println("\nAWS Config Delivery Channels:")
+		formatter.FormatConfigDeliveryChannelsTable(os.Stdout, allChannels)
+	} else {
+		fmt.Println("\nNo AWS Config delivery channels found.")
+	}
+
+	// Calculate scan duration
+	fmt.Printf("\n✓ AWS Config resources analyzed - Completed in %.2f seconds\n\n", scanDuration.Seconds())
 }
 
 // min returns the smaller of x or y
