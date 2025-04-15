@@ -7,40 +7,53 @@ This project follows the [Standard Go Project Layout](https://github.com/golang-
 ```
 idled/
 ├── cmd/
-│   └── idled/        # CLI executable
+│   └── idled/        # Main CLI application
 │       └── main.go
 ├── internal/
-│   └── models/       # Internal data models
+│   └── models/       # Internal data models (struct definitions)
 │       ├── ec2.go
 │       ├── ebs.go
 │       ├── s3.go
+│       ├── lambda.go
+│       ├── eip.go
 │       ├── iam.go
 │       ├── config.go
-│       └── lambda.go
+│       └── elb.go      # Added ELB model
 ├── pkg/
-│   ├── aws/          # AWS API wrapper
+│   ├── aws/          # AWS API interaction logic
 │   │   ├── ec2.go
 │   │   ├── ebs.go
 │   │   ├── s3.go
 │   │   ├── lambda.go
+│   │   ├── eip.go
 │   │   ├── iam.go
 │   │   ├── config.go
-│   │   ├── ec2_pricing.go
-│   │   └── ebs_pricing.go
-│   ├── formatter/    # Output formatters
+│   │   └── elb.go      # Added ELB logic
+│   ├── formatter/    # Output formatting (tables, summaries)
 │   │   ├── ec2_table.go
 │   │   ├── ebs_table.go
 │   │   ├── s3_table.go
 │   │   ├── lambda_table.go
+│   │   ├── eip_table.go
 │   │   ├── iam_table.go
-│   │   └── config_table.go
-│   └── utils/        # Utility functions
-│       └── format.go
-├── docs/             # Documentation
-│   ├── cost-savings-calculation.md
-│   ├── project-structure.md
-│   ├── config.md
-│   └── iam.md
+│   │   ├── config_table.go
+│   │   ├── elb_table.go  # Added ELB table formatter
+│   │   └── common.go   # Common formatting utilities
+│   ├── pricing/      # AWS Pricing API interaction (optional, for cost estimation)
+│   │   └── pricing.go
+│   └── utils/        # General utility functions (e.g., region validation)
+│       └── aws_utils.go
+├── docs/             # Project documentation
+│   ├── aws/          # Per-service documentation (NEW)
+│   │   ├── ec2.md
+│   │   ├── ebs.md
+│   │   ├── s3.md
+│   │   ├── lambda.md
+│   │   ├── eip.md
+│   │   ├── iam.md
+│   │   ├── config.md
+│   │   └── elb.md
+│   └── project-structure.md
 ├── Makefile          # Build automation
 ├── go.mod
 ├── go.sum
@@ -51,181 +64,32 @@ idled/
 
 The code is organized following these principles:
 
-### `/cmd`
+- **Clear Separation of Concerns**: Each package has a well-defined responsibility (AWS calls, formatting, models, main logic).
+- **Modularity**: Components are designed to be relatively independent.
+- **Testability**: Structure allows for easier unit testing of individual packages.
+- **Maintainability**: Follows consistent patterns and Go standards.
 
-- Main applications for this project
-- Each subdirectory represents an executable application
-- Minimal code that initializes and starts the application
+## Code Organization Overview
 
-### `/internal`
+- **`/cmd/idled`**: Contains the `main.go` file, which handles CLI argument parsing (using Cobra), orchestrates calls to different service scanners based on flags, and manages overall application flow including spinners.
+- **`/internal/models`**: Defines the Go structs (e.g., `EC2Instance`, `ELBResource`) used to hold data retrieved from AWS APIs for each service.
+- **`/pkg/aws`**: Houses the core logic for interacting with AWS APIs for each supported service. Each service has its own file (e.g., `ec2.go`, `elb.go`) containing functions to fetch resources and determine their idle status based on defined criteria (API calls, CloudWatch checks).
+- **`/pkg/formatter`**: Contains functions responsible for taking the collected resource data (slices of model structs) and presenting it to the user in a formatted table (using `text/tabwriter`) or as a summary.
+- **`/pkg/pricing`**: (If used) Contains logic to interact with the AWS Pricing API to estimate costs for certain resources (like EBS volumes or EIPs).
+- **`/pkg/utils`**: Provides common helper functions used across different packages, such as AWS region validation.
+- **`/docs`**: Contains project documentation, including per-service details in the `docs/aws/` subdirectory.
 
-- Private application and library code
-- Contains code that should not be imported by other applications
-- Models that define the core data structures used in the application
+## Implementation Details (Concise)
 
-### `/pkg`
+Specific logic for identifying idle resources resides within the respective files in `pkg/aws/`. Key criteria include:
 
-- Library code that's safe to use by external applications
-- Contains reusable components that could be used by other projects
-- Follows clear separation of concerns:
-  - AWS API operations in `aws/` package
-  - Output formatting in `formatter/` package
-  - Pricing and cost calculations in separate files
+- **EC2**: Checks for `stopped` state.
+- **EBS**: Checks for `available` state (unattached).
+- **S3**: Checks CloudTrail for recent access (GetObject, PutObject, etc.).
+- **Lambda**: Checks CloudWatch `Invocations` metric for recent activity.
+- **EIP**: Checks if the EIP is unassociated.
+- **IAM**: Checks last used timestamps for users (login/keys) and roles (assumed), and attachment count for policies.
+- **Config**: Checks for `FAILED` evaluation status (rules) or `Failure` status (recorders, channels).
+- **ELB (ALB/NLB)**: Checks target health (`DescribeTargetHealth`) and relevant CloudWatch metrics (`RequestCount` for ALB, `ActiveFlowCount` for NLB) for recent activity.
 
-### `/docs`
-
-- Documentation files for the project
-- Includes detailed explanations about specific aspects of the system
-
-## Code Organization
-
-- **Clear Separation of Concerns**: Each component has a well-defined responsibility
-- **Modularity**: Components are designed to be independent and reusable
-- **Testability**: Code structure allows for easy unit testing
-- **Maintainability**: Code follows consistent patterns and style
-
-## S3 Implementation Details
-
-The S3 idle bucket detection is implemented with the following components:
-
-### 1. Data Model (`internal/models/s3.go`)
-
-- Defines the `BucketInfo` struct that holds information about an S3 bucket
-- Includes fields for bucket stats, activity metrics, and idle detection
-
-### 2. AWS Client (`pkg/aws/s3.go`)
-
-- Implements S3 API operations using AWS SDK v2
-- Provides methods to:
-  - List all buckets and filter by region
-  - Analyze bucket statistics (object count, size, last modified)
-  - Check bucket configurations (website, policy, notifications)
-  - Determine if a bucket is idle based on multiple criteria
-  - Get CloudWatch metrics for API usage patterns
-
-### 3. Output Formatter (`pkg/formatter/s3.go`)
-
-- Displays S3 bucket information in table format
-- Summarizes idle buckets by category
-- Shows usage patterns and statistics
-
-### 4. Main CLI (`cmd/idled/main.go`)
-
-- Adds S3 service to supported services
-- Implements parallel processing of regions
-- Consolidates results for display
-
-### 5. Progress Indication
-
-- Shows real-time progress for S3 operations
-- Especially valuable for large buckets or many buckets
-- Helps users understand the state of long-running operations
-
-## Lambda Implementation Details
-
-The Lambda idle function detection is implemented with the following components:
-
-### 1. Data Model (`internal/models/lambda.go`)
-
-- Defines the `LambdaFunctionInfo` struct that holds information about a Lambda function
-- Includes fields for function configuration, invocation metrics, and idle detection
-
-### 2. AWS Client (`pkg/aws/lambda.go`)
-
-- Implements Lambda and CloudWatch API operations using AWS SDK v2
-- Provides methods to:
-  - List all Lambda functions in a region
-  - Analyze function usage metrics (invocations, errors, duration)
-  - Determine the last invocation time from CloudWatch metrics
-  - Calculate estimated monthly costs based on memory, duration, and invocation count
-  - Determine if a function is idle based on invocation patterns
-
-### 3. Output Formatter (`pkg/formatter/lambda_table.go`)
-
-- Displays Lambda function information in a tabular format
-- Shows key metrics like runtime, memory, invocations, errors, and idle days
-- Estimates monthly cost for each function
-- Provides summary statistics on idle functions
-
-### 4. Progress Indication
-
-- Shows real-time progress for Lambda analysis operations
-- Displays current function being analyzed and overall progress percentage
-- Provides clear feedback for long-running operations where many Lambda functions are being analyzed
-
-## IAM Implementation Details
-
-The IAM idle resource detection is implemented with the following components:
-
-### 1. Data Model (`internal/models/iam.go`)
-
-- Defines the data structures for IAM users, roles, and policies
-- Includes fields for tracking:
-  - Resource identifiers (name, ARN, ID)
-  - Age and creation dates
-  - Last activity timestamps
-  - Security configurations (MFA, access keys)
-  - Attachment and relationship information
-  - Idle status determination
-
-### 2. AWS Client (`pkg/aws/iam.go`)
-
-- Implements IAM API operations using AWS SDK v2
-- Provides methods to:
-  - List all IAM users, roles, and policies in the account
-  - Analyze user activity through login history and access key usage
-  - Analyze role usage and determine if service-linked or cross-account
-  - Extract policy attachment and version information
-  - Calculate idle days based on creation and last activity dates
-  - Determine if resources are idle based on configurable criteria
-
-### 3. Output Formatter (`pkg/formatter/iam_table.go`)
-
-- Displays IAM resource information in tabular format
-- Shows key metrics like resource age, last activity, and security configurations
-- Groups and sorts resources by idle status for better visibility
-- Provides summary statistics for each resource type
-
-### 4. Progress Indication
-
-- Shows real-time progress for IAM operations
-- Displays the current stage of analysis and overall completion percentage
-- Indicates resource count and processing status for each resource type
-
-## Config Implementation Details
-
-The AWS Config resource detection is implemented with the following components:
-
-### 1. Data Model (`internal/models/config.go`)
-
-- Defines the data structures for Config Rules, Recorders, and Delivery Channels
-- Includes fields for tracking:
-  - Resource identifiers (name, ARN, ID)
-  - Creation and last modified timestamps
-  - Active/inactive status and compliance status
-  - Configuration settings (resource types, delivery settings)
-  - Activity metrics and idle status determination
-
-### 2. AWS Client (`pkg/aws/config.go`)
-
-- Implements AWS Config API operations using AWS SDK v2
-- Provides methods to:
-  - List all Config Rules, Recorders, and Delivery Channels in each region
-  - Analyze rule evaluation status and compliance
-  - Check recorder status and configuration
-  - Examine delivery channel settings and activity
-  - Calculate idle days based on last activity times
-  - Determine if resources are idle based on configurable criteria
-
-### 3. Output Formatter (`pkg/formatter/config_table.go`)
-
-- Displays Config resource information in tabular format
-- Shows key metrics like compliance status, recording status, and idle days
-- Groups resources by type and sorts by activity status
-- Provides summary statistics for each resource type
-
-### 4. Progress Indication
-
-- Shows real-time progress for Config operations
-- Displays the current region being processed
-- Provides overall status and resource count metrics
+The output formatting for each service is handled by the corresponding `_table.go` file in `pkg/formatter/`.
