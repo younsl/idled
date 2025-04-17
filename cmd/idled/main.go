@@ -21,8 +21,8 @@ import (
 
 // Version information
 const (
-	Version        = "0.5.0"
-	BuildDate      = "2025-04-16"
+	Version        = "0.6.1"
+	BuildDate      = "2025-04-17"
 	DefaultService = "ec2"
 )
 
@@ -56,13 +56,367 @@ var serviceDescriptions = map[string]string{
 	"logs":   "Find idle CloudWatch Log Groups",
 }
 
-// startResourceSpinner creates and starts a spinner with a message for the given service
-func startResourceSpinner(service string) *spinner.Spinner {
+// startResourceSpinner creates and starts a spinner with a message for the given service and regions
+func startResourceSpinner(service string, regions []string) *spinner.Spinner {
 	s := spinner.New(spinner.CharSets[9], 200*time.Millisecond)
-	s.Suffix = fmt.Sprintf(" Analyzing %s resources ...", service)
+	regionStr := "Global"
+	if len(regions) > 0 {
+		regionStr = strings.Join(regions, ", ")
+		if len(regions) > 5 { // Limit displayed regions for conciseness
+			regionStr = fmt.Sprintf("%s, ... (%d total)", strings.Join(regions[:5], ", "), len(regions))
+		}
+	}
+	s.Suffix = fmt.Sprintf(" Analyzing %s resources in %s ...", service, regionStr)
 	// Don't set FinalMSG here as it will be set dynamically based on scan time
 	s.Start()
 	return s
+}
+
+// Common function to start scan
+func startScan(serviceName string, regions []string) (time.Time, *spinner.Spinner) {
+	// fmt.Printf("Starting %s scan in regions: %s ...\n", serviceName, strings.Join(regions, ", ")) // Keep console clean, spinner shows info
+	scanStartTime := time.Now()
+	s := startResourceSpinner(serviceName, regions) // Pass regions to spinner
+	return scanStartTime, s
+}
+
+// Common result structure
+type ScanResult[T any] struct {
+	Data   []T
+	Err    error
+	Region string
+}
+
+// Common function to process results
+func processResults[T any](results []ScanResult[T], scanStartTime time.Time, s *spinner.Spinner, printTable func([]T, time.Time, time.Duration), printSummary func([]T)) {
+	scanDuration := time.Since(scanStartTime)
+	var allData []T
+	for _, result := range results {
+		if result.Err == nil {
+			allData = append(allData, result.Data...)
+		}
+	}
+	s.FinalMSG = fmt.Sprintf("✓ [%d items found] resources analyzed - Completed in %.2f seconds\n",
+		len(allData), scanDuration.Seconds())
+	s.Stop()
+
+	// Display API init message if any (moved here for consistency)
+	if msg := pricing.GetInitMessage(); msg != "" {
+		fmt.Println(msg)
+	}
+
+	allData = []T{} // Reset to re-process for error display and final table
+	for _, result := range results {
+		if result.Err != nil {
+			fmt.Printf("Error in region %s: %v\n", result.Region, result.Err)
+			continue
+		}
+		allData = append(allData, result.Data...)
+	}
+	printTable(allData, scanStartTime, scanDuration)
+	printSummary(allData)
+}
+
+// Common function to handle errors
+func handleErrors(errChan <-chan error) []string {
+	var allErrors []string
+	for err := range errChan {
+		allErrors = append(allErrors, err.Error())
+	}
+	return allErrors
+}
+
+// Generic function to handle service-specific scan logic
+func processService[T any](
+	serviceName string, // Service name (for spinner message)
+	regions []string, // List of regions to scan
+	getDataForRegion func(region string) ([]T, error), // Function to get data for a specific region
+	printTable func([]T, time.Time, time.Duration), // Function to print results as a table
+	printSummary func([]T), // Function to print result summary
+) {
+	scanStartTime, s := startScan(serviceName, regions)
+	results := make([]ScanResult[T], len(regions))
+	var wg sync.WaitGroup
+
+	for i, region := range regions {
+		wg.Add(1)
+		go func(idx int, r string) {
+			defer wg.Done()
+			results[idx].Region = r
+			// Execute service-specific data fetching logic
+			data, err := getDataForRegion(r)
+			results[idx].Data = data
+			results[idx].Err = err
+		}(i, region)
+	}
+
+	wg.Wait()
+	// Call common result processing function
+	processResults(results, scanStartTime, s, printTable, printSummary)
+}
+
+// Refactor processEC2 function (using processService)
+func processEC2(regions []string) {
+	getData := func(region string) ([]models.InstanceInfo, error) {
+		client, err := aws.NewEC2Client(region)
+		if err != nil {
+			return nil, err
+		}
+		return client.GetStoppedInstances()
+	}
+	processService("EC2", regions, getData, formatter.PrintInstancesTable, formatter.PrintInstancesSummary)
+}
+
+// Refactor processEBS function (using processService)
+func processEBS(regions []string) {
+	getData := func(region string) ([]models.VolumeInfo, error) {
+		client, err := aws.NewEBSClient(region)
+		if err != nil {
+			return nil, err
+		}
+		return client.GetAvailableVolumes()
+	}
+	processService("EBS", regions, getData, formatter.PrintVolumesTable, formatter.PrintVolumesSummary)
+}
+
+// Refactor processS3 function (using processService)
+func processS3(regions []string) {
+	getData := func(region string) ([]models.BucketInfo, error) {
+		client, err := aws.NewS3Client(region)
+		if err != nil {
+			return nil, err
+		}
+		return client.GetIdleBuckets()
+	}
+	processService("S3", regions, getData, formatter.PrintBucketsTable, formatter.PrintBucketsSummary)
+}
+
+// Refactor processLambda function (using processService)
+func processLambda(regions []string) {
+	getData := func(region string) ([]models.LambdaFunctionInfo, error) {
+		client, err := aws.NewLambdaClient(region)
+		if err != nil {
+			return nil, err
+		}
+		return client.GetIdleFunctions()
+	}
+	processService("Lambda", regions, getData, formatter.PrintLambdaTable, formatter.PrintLambdaSummary)
+}
+
+// Refactor processEIP function (using processService)
+func processEIP(regions []string) {
+	getData := func(region string) ([]models.EIPInfo, error) {
+		client, err := aws.NewEIPClient(region)
+		if err != nil {
+			return nil, err
+		}
+		return client.GetUnattachedEIPs()
+	}
+	processService("Elastic IP", regions, getData, formatter.PrintEIPsTable, formatter.PrintEIPsSummary)
+}
+
+// processIAM handles the scanning of IAM resources
+func processIAM(regions []string) {
+	// Pass nil for regions as IAM is global
+	scanStartTime, _ := startScan("IAM", nil)
+	// region := regions[0] // Keep original logic for client init region
+	// fmt.Printf("Note: IAM is a global service. Region parameter '%s' will be used for configuration only.\n", region)
+	client, err := aws.NewIAMClient(regions[0]) // Use the first region for client init
+	if err != nil {
+		fmt.Printf("Error initializing IAM client: %v\n", err)
+		return
+	}
+	users, err := client.GetIdleUsers()
+	if err != nil {
+		fmt.Printf("Error getting IAM users: %v\n", err)
+	} else {
+		fmt.Println("\nIAM Users:")
+		formatter.FormatIAMUserTable(os.Stdout, users)
+	}
+	roles, err := client.GetIdleRoles()
+	if err != nil {
+		fmt.Printf("Error getting IAM roles: %v\n", err)
+	} else {
+		fmt.Println("\nIAM Roles:")
+		formatter.FormatIAMRoleTable(os.Stdout, roles)
+	}
+	policies, err := client.GetIdlePolicies()
+	if err != nil {
+		fmt.Printf("Error getting IAM policies: %v\n", err)
+	} else {
+		fmt.Println("\nIAM Policies:")
+		formatter.FormatIAMPolicyTable(os.Stdout, policies)
+	}
+	scanDuration := time.Since(scanStartTime)
+	fmt.Printf("\n✓ IAM resources analyzed - Completed in %.2f seconds\n\n", scanDuration.Seconds())
+}
+
+// processConfig handles the scanning of AWS Config resources
+func processConfig(regions []string) {
+	scanStartTime, s := startScan("Config", regions)
+	results := make([]struct {
+		rules     []models.ConfigRuleInfo
+		recorders []models.ConfigRecorderInfo
+		channels  []models.ConfigDeliveryChannelInfo
+		region    string
+		err       error
+	}, len(regions))
+	var wg sync.WaitGroup
+	for i, region := range regions {
+		wg.Add(1)
+		go func(idx int, r string) {
+			defer wg.Done()
+			client, err := aws.NewConfigClient(r)
+			if err != nil {
+				fmt.Printf("Error initializing AWS Config client for region %s: %v\n", r, err)
+				results[idx].err = err
+				results[idx].region = r
+				return
+			}
+			rules, err := client.GetAllConfigRules()
+			if err != nil {
+				fmt.Printf("Error getting AWS Config rules for region %s: %v\n", r, err)
+			}
+			results[idx].rules = rules
+			recorders, err := client.GetAllConfigRecorders()
+			if err != nil {
+				fmt.Printf("Error getting AWS Config recorders for region %s: %v\n", r, err)
+			}
+			results[idx].recorders = recorders
+			channels, err := client.GetAllConfigDeliveryChannels()
+			if err != nil {
+				fmt.Printf("Error getting AWS Config delivery channels for region %s: %v\n", r, err)
+			}
+			results[idx].channels = channels
+			results[idx].region = r
+		}(i, region)
+	}
+	wg.Wait()
+
+	scanDuration := time.Since(scanStartTime)
+
+	var allRules []models.ConfigRuleInfo
+	var allRecorders []models.ConfigRecorderInfo
+	var allChannels []models.ConfigDeliveryChannelInfo
+	for _, result := range results {
+		if result.err == nil {
+			allRules = append(allRules, result.rules...)
+			allRecorders = append(allRecorders, result.recorders...)
+			allChannels = append(allChannels, result.channels...)
+		}
+	}
+	totalCount := len(allRules) + len(allRecorders) + len(allChannels)
+	s.FinalMSG = fmt.Sprintf("✓ [%d resources found] AWS Config resources analyzed - Completed in %.2f seconds\n",
+		totalCount, scanDuration.Seconds())
+	s.Stop()
+	allRules = []models.ConfigRuleInfo{}
+	allRecorders = []models.ConfigRecorderInfo{}
+	allChannels = []models.ConfigDeliveryChannelInfo{}
+	for _, result := range results {
+		if result.err != nil {
+			fmt.Printf("Error in region %s: %v\n", result.region, result.err)
+			continue
+		}
+		allRules = append(allRules, result.rules...)
+		allRecorders = append(allRecorders, result.recorders...)
+		allChannels = append(allChannels, result.channels...)
+	}
+	if len(allRules) > 0 {
+		fmt.Println("\nAWS Config Rules:")
+		formatter.FormatConfigRulesTable(os.Stdout, allRules)
+	} else {
+		fmt.Println("\nNo AWS Config rules found.")
+	}
+	if len(allRecorders) > 0 {
+		fmt.Println("\nAWS Config Recorders:")
+		formatter.FormatConfigRecordersTable(os.Stdout, allRecorders)
+	} else {
+		fmt.Println("\nNo AWS Config recorders found.")
+	}
+	if len(allChannels) > 0 {
+		fmt.Println("\nAWS Config Delivery Channels:")
+		formatter.FormatConfigDeliveryChannelsTable(os.Stdout, allChannels)
+	} else {
+		fmt.Println("\nNo AWS Config delivery channels found.")
+	}
+	fmt.Printf("\n✓ AWS Config resources analyzed - Completed in %.2f seconds\n\n", scanDuration.Seconds())
+}
+
+// Refactor processELB function (using processService)
+func processELB(regions []string) {
+	getData := func(region string) ([]models.ELBResource, error) {
+		cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
+		if err != nil {
+			return nil, fmt.Errorf("failed to load AWS config for region %s: %w", region, err)
+		}
+		scanner := aws.NewELBScanner(cfg)
+		return scanner.GetIdleELBs(context.TODO(), region)
+	}
+	// PrintELBTable, PrintELBSummary need os.Stdout -> use anonymous functions
+	printTable := func(data []models.ELBResource, _ time.Time, _ time.Duration) {
+		formatter.PrintELBTable(os.Stdout, data)
+	}
+	printSummary := func(data []models.ELBResource) {
+		formatter.PrintELBSummary(os.Stdout, data)
+	}
+	processService("ELB (v2)", regions, getData, printTable, printSummary)
+}
+
+// processLogs handles the scanning of CloudWatch Log Groups, aligned with EC2 flow
+func processLogs(regions []string) {
+	scanStartTime, s := startScan("Logs", regions)
+	var allLogGroups []models.LogGroupInfo
+	var mu sync.Mutex
+	errChan := make(chan error, len(regions)*2)
+	var wg sync.WaitGroup
+	for _, region := range regions {
+		wg.Add(1)
+		go func(r string) {
+			defer wg.Done()
+			cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(r))
+			if err != nil {
+				errChan <- fmt.Errorf("failed to load config for region %s: %w", r, err)
+				return
+			}
+			idleThreshold := 90
+			logGroups, scanErrs := aws.ScanLogGroups(cfg, idleThreshold)
+			if len(logGroups) > 0 {
+				mu.Lock()
+				allLogGroups = append(allLogGroups, logGroups...)
+				mu.Unlock()
+			}
+			if len(scanErrs) > 0 {
+				for _, scanErr := range scanErrs {
+					errChan <- fmt.Errorf("region %s: %w", r, scanErr)
+				}
+			}
+		}(region)
+	}
+	go func() {
+		wg.Wait()
+		close(errChan)
+	}()
+	allErrors := handleErrors(errChan)
+	scanDuration := time.Since(scanStartTime)
+	s.FinalMSG = fmt.Sprintf("✓ [%d Log Groups found] Logs resources analyzed - Completed in %.2f seconds\n",
+		len(allLogGroups), scanDuration.Seconds())
+	s.Stop()
+	if len(allErrors) > 0 {
+		fmt.Printf("\nErrors during CloudWatch Logs scan:\n")
+		for _, errMsg := range allErrors {
+			fmt.Printf(" - %s\n", errMsg)
+		}
+		fmt.Println()
+	}
+	formatter.PrintLogGroupsTable(allLogGroups)
+}
+
+// min returns the smaller of x or y
+func min(x, y int) int {
+	if x < y {
+		return x
+	}
+	return y
 }
 
 func main() {
@@ -230,703 +584,4 @@ and displays the results in a table format.`,
 		fmt.Println(err)
 		os.Exit(1)
 	}
-}
-
-// processEC2 handles the scanning of EC2 instances
-func processEC2(regions []string) {
-	fmt.Println("Starting EC2 scan ...")
-	scanStartTime := time.Now()
-
-	// Start the spinner
-	s := startResourceSpinner("EC2")
-
-	// Slice to store results
-	allInstances := make([]struct {
-		instances []models.InstanceInfo
-		err       error
-		region    string
-	}, len(regions))
-
-	// Process each region in parallel
-	var wg sync.WaitGroup
-	for i, region := range regions {
-		wg.Add(1)
-		go func(idx int, r string) {
-			defer wg.Done()
-
-			client, err := aws.NewEC2Client(r)
-			if err != nil {
-				allInstances[idx].err = err
-				allInstances[idx].region = r
-				return
-			}
-
-			instances, err := client.GetStoppedInstances()
-			allInstances[idx].instances = instances
-			allInstances[idx].err = err
-			allInstances[idx].region = r
-		}(i, region)
-	}
-
-	wg.Wait()
-
-	// Calculate scan duration
-	scanDuration := time.Since(scanStartTime)
-
-	// Process results to get total count
-	var allStoppedInstances []models.InstanceInfo
-	for _, result := range allInstances {
-		if result.err == nil {
-			allStoppedInstances = append(allStoppedInstances, result.instances...)
-		}
-	}
-
-	// Set completion message with scan time and resource count
-	s.FinalMSG = fmt.Sprintf("✓ [%d instances found] EC2 resources analyzed - Completed in %.2f seconds\n",
-		len(allStoppedInstances), scanDuration.Seconds())
-	s.Stop() // Stop the spinner when done
-
-	// Display API init message if any
-	if msg := pricing.GetInitMessage(); msg != "" {
-		fmt.Println(msg)
-	}
-
-	// Process results for errors
-	allStoppedInstances = []models.InstanceInfo{} // Reset to re-process
-
-	// Process results from each region
-	for _, result := range allInstances {
-		if result.err != nil {
-			fmt.Printf("Error in region %s: %v\n", result.region, result.err)
-			continue
-		}
-		allStoppedInstances = append(allStoppedInstances, result.instances...)
-	}
-
-	// Display as table
-	formatter.PrintInstancesTable(allStoppedInstances, scanStartTime, scanDuration)
-	formatter.PrintInstancesSummary(allStoppedInstances)
-}
-
-// processEBS handles the scanning of available EBS volumes
-func processEBS(regions []string) {
-	fmt.Println("Starting EBS scan ...")
-	scanStartTime := time.Now()
-
-	// Start the spinner
-	s := startResourceSpinner("EBS")
-
-	// Slice to store results
-	allVolumes := make([]struct {
-		volumes []models.VolumeInfo
-		err     error
-		region  string
-	}, len(regions))
-
-	// Process each region in parallel
-	var wg sync.WaitGroup
-	for i, region := range regions {
-		wg.Add(1)
-		go func(idx int, r string) {
-			defer wg.Done()
-
-			client, err := aws.NewEBSClient(r)
-			if err != nil {
-				allVolumes[idx].err = err
-				allVolumes[idx].region = r
-				return
-			}
-
-			volumes, err := client.GetAvailableVolumes()
-			allVolumes[idx].volumes = volumes
-			allVolumes[idx].err = err
-			allVolumes[idx].region = r
-		}(i, region)
-	}
-
-	wg.Wait()
-
-	// Calculate scan duration
-	scanDuration := time.Since(scanStartTime)
-
-	// Process results to get total count
-	var allAvailableVolumes []models.VolumeInfo
-	for _, result := range allVolumes {
-		if result.err == nil {
-			allAvailableVolumes = append(allAvailableVolumes, result.volumes...)
-		}
-	}
-
-	// Set completion message with scan time and resource count
-	s.FinalMSG = fmt.Sprintf("✓ [%d volumes found] EBS resources analyzed - Completed in %.2f seconds\n",
-		len(allAvailableVolumes), scanDuration.Seconds())
-	s.Stop() // Stop the spinner when done
-
-	// Display API init message if any
-	if msg := pricing.GetInitMessage(); msg != "" {
-		fmt.Println(msg)
-	}
-
-	// Process results for errors
-	allAvailableVolumes = []models.VolumeInfo{} // Reset to re-process
-
-	// Process results from each region
-	for _, result := range allVolumes {
-		if result.err != nil {
-			fmt.Printf("Error in region %s: %v\n", result.region, result.err)
-			continue
-		}
-		allAvailableVolumes = append(allAvailableVolumes, result.volumes...)
-	}
-
-	// Display as table with the requested format
-	formatter.PrintVolumesTable(allAvailableVolumes, scanStartTime, scanDuration)
-	formatter.PrintVolumesSummary(allAvailableVolumes)
-}
-
-// processS3 handles the scanning of idle S3 buckets
-func processS3(regions []string) {
-	fmt.Println("Starting S3 scan ...")
-	scanStartTime := time.Now()
-
-	// Start the spinner
-	s := startResourceSpinner("S3")
-
-	// Slice to store results
-	allBuckets := make([]struct {
-		buckets []models.BucketInfo
-		err     error
-		region  string
-	}, len(regions))
-
-	// Process each region in parallel
-	var wg sync.WaitGroup
-	for i, region := range regions {
-		wg.Add(1)
-		go func(idx int, r string) {
-			defer wg.Done()
-
-			client, err := aws.NewS3Client(r)
-			if err != nil {
-				allBuckets[idx].err = err
-				allBuckets[idx].region = r
-				return
-			}
-
-			buckets, err := client.GetIdleBuckets()
-			allBuckets[idx].buckets = buckets
-			allBuckets[idx].err = err
-			allBuckets[idx].region = r
-		}(i, region)
-	}
-
-	wg.Wait()
-
-	// Calculate scan duration
-	scanDuration := time.Since(scanStartTime)
-
-	// Process results to get total count
-	var allIdleBuckets []models.BucketInfo
-	for _, result := range allBuckets {
-		if result.err == nil {
-			allIdleBuckets = append(allIdleBuckets, result.buckets...)
-		}
-	}
-
-	// Set completion message with scan time and resource count
-	s.FinalMSG = fmt.Sprintf("✓ [%d buckets found] S3 resources analyzed - Completed in %.2f seconds\n",
-		len(allIdleBuckets), scanDuration.Seconds())
-	s.Stop() // Stop the spinner when done
-
-	// Display API init message if any
-	if msg := pricing.GetInitMessage(); msg != "" {
-		fmt.Println(msg)
-	}
-
-	// Process results for errors
-	allIdleBuckets = []models.BucketInfo{} // Reset to re-process
-
-	// Process results from each region
-	for _, result := range allBuckets {
-		if result.err != nil {
-			fmt.Printf("Error in region %s: %v\n", result.region, result.err)
-			continue
-		}
-		allIdleBuckets = append(allIdleBuckets, result.buckets...)
-	}
-
-	// Display as table
-	formatter.PrintBucketsTable(allIdleBuckets, scanStartTime, scanDuration)
-	formatter.PrintBucketsSummary(allIdleBuckets)
-}
-
-// processLambda handles the scanning of idle Lambda functions
-func processLambda(regions []string) {
-	fmt.Println("Starting Lambda scan...")
-	scanStartTime := time.Now()
-
-	// Start the spinner
-	s := startResourceSpinner("Lambda")
-
-	// Slice to store results
-	allFunctions := make([]struct {
-		functions []models.LambdaFunctionInfo
-		err       error
-		region    string
-	}, len(regions))
-
-	// Process each region in parallel
-	var wg sync.WaitGroup
-	for i, region := range regions {
-		wg.Add(1)
-		go func(idx int, r string) {
-			defer wg.Done()
-
-			client, err := aws.NewLambdaClient(r)
-			if err != nil {
-				allFunctions[idx].err = err
-				allFunctions[idx].region = r
-				return
-			}
-
-			functions, err := client.GetIdleFunctions()
-			allFunctions[idx].functions = functions
-			allFunctions[idx].err = err
-			allFunctions[idx].region = r
-		}(i, region)
-	}
-
-	wg.Wait()
-
-	// Calculate scan duration
-	scanDuration := time.Since(scanStartTime)
-
-	// Process results to get total count
-	var allIdleFunctions []models.LambdaFunctionInfo
-	for _, result := range allFunctions {
-		if result.err == nil {
-			allIdleFunctions = append(allIdleFunctions, result.functions...)
-		}
-	}
-
-	// Set completion message with scan time and resource count
-	s.FinalMSG = fmt.Sprintf("✓ [%d functions found] Lambda resources analyzed - Completed in %.2f seconds\n",
-		len(allIdleFunctions), scanDuration.Seconds())
-	s.Stop() // Stop the spinner when done
-
-	// Process results for errors
-	allIdleFunctions = []models.LambdaFunctionInfo{} // Reset to re-process
-
-	// Process results from each region
-	for _, result := range allFunctions {
-		if result.err != nil {
-			fmt.Printf("Error in region %s: %v\n", result.region, result.err)
-			continue
-		}
-		allIdleFunctions = append(allIdleFunctions, result.functions...)
-	}
-
-	// Display as table
-	formatter.PrintLambdaTable(allIdleFunctions, scanStartTime, scanDuration)
-	formatter.PrintLambdaSummary(allIdleFunctions)
-}
-
-// processEIP handles the scanning of unattached Elastic IPs
-func processEIP(regions []string) {
-	fmt.Println("Starting Elastic IP scan ...")
-	scanStartTime := time.Now()
-
-	// Start the spinner
-	s := startResourceSpinner("Elastic IP")
-
-	// Slice to store results
-	allEIPs := make([]struct {
-		eips   []models.EIPInfo
-		err    error
-		region string
-	}, len(regions))
-
-	// Process each region in parallel
-	var wg sync.WaitGroup
-	for i, region := range regions {
-		wg.Add(1)
-		go func(idx int, r string) {
-			defer wg.Done()
-
-			client, err := aws.NewEIPClient(r)
-			if err != nil {
-				allEIPs[idx].err = err
-				allEIPs[idx].region = r
-				return
-			}
-
-			eips, err := client.GetUnattachedEIPs()
-			allEIPs[idx].eips = eips
-			allEIPs[idx].err = err
-			allEIPs[idx].region = r
-		}(i, region)
-	}
-
-	wg.Wait()
-
-	// Calculate scan duration
-	scanDuration := time.Since(scanStartTime)
-
-	// Process results to get total count
-	var allUnattachedEIPs []models.EIPInfo
-	for _, result := range allEIPs {
-		if result.err == nil {
-			allUnattachedEIPs = append(allUnattachedEIPs, result.eips...)
-		}
-	}
-
-	// Set completion message with scan time and resource count
-	s.FinalMSG = fmt.Sprintf("✓ [%d EIPs found] Elastic IP resources analyzed - Completed in %.2f seconds\n",
-		len(allUnattachedEIPs), scanDuration.Seconds())
-	s.Stop() // Stop the spinner when done
-
-	// Process results for errors
-	allUnattachedEIPs = []models.EIPInfo{} // Reset to re-process
-
-	// Process results from each region
-	for _, result := range allEIPs {
-		if result.err != nil {
-			fmt.Printf("Error in region %s: %v\n", result.region, result.err)
-			continue
-		}
-		allUnattachedEIPs = append(allUnattachedEIPs, result.eips...)
-	}
-
-	// Display as table
-	formatter.PrintEIPsTable(allUnattachedEIPs, scanStartTime, scanDuration)
-	formatter.PrintEIPsSummary(allUnattachedEIPs)
-}
-
-// processIAM handles the scanning of IAM resources
-func processIAM(regions []string) {
-	fmt.Println("Starting IAM scan ...")
-	scanStartTime := time.Now()
-
-	// IAM is a global service, so we only need to process one region
-	region := regions[0]
-	fmt.Printf("Note: IAM is a global service. Region parameter '%s' will be used for configuration only.\n", region)
-
-	// Initialize IAM client
-	client, err := aws.NewIAMClient(region)
-	if err != nil {
-		fmt.Printf("Error initializing IAM client: %v\n", err)
-		return
-	}
-
-	// Process IAM users
-	users, err := client.GetIdleUsers()
-	if err != nil {
-		fmt.Printf("Error getting IAM users: %v\n", err)
-	} else {
-		fmt.Println("\nIAM Users:")
-		formatter.FormatIAMUserTable(os.Stdout, users)
-	}
-
-	// Process IAM roles after users have been processed
-	roles, err := client.GetIdleRoles()
-	if err != nil {
-		fmt.Printf("Error getting IAM roles: %v\n", err)
-	} else {
-		fmt.Println("\nIAM Roles:")
-		formatter.FormatIAMRoleTable(os.Stdout, roles)
-	}
-
-	// Process IAM policies after roles have been processed
-	policies, err := client.GetIdlePolicies()
-	if err != nil {
-		fmt.Printf("Error getting IAM policies: %v\n", err)
-	} else {
-		fmt.Println("\nIAM Policies:")
-		formatter.FormatIAMPolicyTable(os.Stdout, policies)
-	}
-
-	// Calculate scan duration
-	scanDuration := time.Since(scanStartTime)
-	fmt.Printf("\n✓ IAM resources analyzed - Completed in %.2f seconds\n\n", scanDuration.Seconds())
-}
-
-// processConfig handles the scanning of AWS Config resources
-func processConfig(regions []string) {
-	fmt.Println("Starting AWS Config scan ...")
-	scanStartTime := time.Now()
-
-	// Start the spinner
-	s := startResourceSpinner("Config")
-
-	// Process each region
-	var wg sync.WaitGroup
-	results := make([]struct {
-		rules     []models.ConfigRuleInfo
-		recorders []models.ConfigRecorderInfo
-		channels  []models.ConfigDeliveryChannelInfo
-		region    string
-		err       error
-	}, len(regions))
-
-	for i, region := range regions {
-		wg.Add(1)
-		go func(idx int, r string) {
-			defer wg.Done()
-
-			// Initialize AWS Config client
-			client, err := aws.NewConfigClient(r)
-			if err != nil {
-				fmt.Printf("Error initializing AWS Config client for region %s: %v\n", r, err)
-				results[idx].err = err
-				results[idx].region = r
-				return
-			}
-
-			// Get all Config rules
-			rules, err := client.GetAllConfigRules()
-			if err != nil {
-				fmt.Printf("Error getting AWS Config rules for region %s: %v\n", r, err)
-			}
-			results[idx].rules = rules
-
-			// Get all Config recorders
-			recorders, err := client.GetAllConfigRecorders()
-			if err != nil {
-				fmt.Printf("Error getting AWS Config recorders for region %s: %v\n", r, err)
-			}
-			results[idx].recorders = recorders
-
-			// Get all Config delivery channels
-			channels, err := client.GetAllConfigDeliveryChannels()
-			if err != nil {
-				fmt.Printf("Error getting AWS Config delivery channels for region %s: %v\n", r, err)
-			}
-			results[idx].channels = channels
-
-			results[idx].region = r
-		}(i, region)
-	}
-
-	wg.Wait()
-
-	// Calculate scan duration
-	scanDuration := time.Since(scanStartTime)
-
-	// Combine results for total count
-	var allRules []models.ConfigRuleInfo
-	var allRecorders []models.ConfigRecorderInfo
-	var allChannels []models.ConfigDeliveryChannelInfo
-
-	for _, result := range results {
-		if result.err == nil {
-			allRules = append(allRules, result.rules...)
-			allRecorders = append(allRecorders, result.recorders...)
-			allChannels = append(allChannels, result.channels...)
-		}
-	}
-
-	// Total count of all Config resources
-	totalCount := len(allRules) + len(allRecorders) + len(allChannels)
-
-	// Set completion message with scan time and resource count
-	s.FinalMSG = fmt.Sprintf("✓ [%d resources found] AWS Config resources analyzed - Completed in %.2f seconds\n",
-		totalCount, scanDuration.Seconds())
-	s.Stop() // Stop the spinner when done
-
-	// Display API init message if any
-	if msg := pricing.GetInitMessage(); msg != "" {
-		fmt.Println(msg)
-	}
-
-	// Reset for error handling
-	allRules = []models.ConfigRuleInfo{}
-	allRecorders = []models.ConfigRecorderInfo{}
-	allChannels = []models.ConfigDeliveryChannelInfo{}
-
-	// Process results from each region and handle errors
-	for _, result := range results {
-		if result.err != nil {
-			fmt.Printf("Error in region %s: %v\n", result.region, result.err)
-			continue
-		}
-		allRules = append(allRules, result.rules...)
-		allRecorders = append(allRecorders, result.recorders...)
-		allChannels = append(allChannels, result.channels...)
-	}
-
-	// Display results
-	if len(allRules) > 0 {
-		fmt.Println("\nAWS Config Rules:")
-		formatter.FormatConfigRulesTable(os.Stdout, allRules)
-	} else {
-		fmt.Println("\nNo AWS Config rules found.")
-	}
-
-	if len(allRecorders) > 0 {
-		fmt.Println("\nAWS Config Recorders:")
-		formatter.FormatConfigRecordersTable(os.Stdout, allRecorders)
-	} else {
-		fmt.Println("\nNo AWS Config recorders found.")
-	}
-
-	if len(allChannels) > 0 {
-		fmt.Println("\nAWS Config Delivery Channels:")
-		formatter.FormatConfigDeliveryChannelsTable(os.Stdout, allChannels)
-	} else {
-		fmt.Println("\nNo AWS Config delivery channels found.")
-	}
-
-	// Calculate scan duration
-	fmt.Printf("\n✓ AWS Config resources analyzed - Completed in %.2f seconds\n\n", scanDuration.Seconds())
-}
-
-// processELB fetches idle ELB resources and prints them
-func processELB(regions []string) {
-	// Align start message with other resources
-	fmt.Println("Starting ELB (ALB/NLB) scan ...")
-	scanStartTime := time.Now()
-
-	// Start the spinner
-	s := startResourceSpinner("ELB (v2)")
-
-	// Slice to store results from all regions
-	allELBsResult := make([]struct {
-		elbs   []models.ELBResource
-		err    error
-		region string
-	}, len(regions))
-
-	// Process each region in parallel
-	var wg sync.WaitGroup
-	for i, region := range regions {
-		wg.Add(1)
-		go func(idx int, r string) {
-			defer wg.Done()
-
-			cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(r))
-			if err != nil {
-				allELBsResult[idx].err = fmt.Errorf("failed to load AWS config for region %s: %w", r, err)
-				allELBsResult[idx].region = r
-				return
-			}
-
-			scanner := aws.NewELBScanner(cfg) // Use the NewELBScanner
-			elbs, err := scanner.GetIdleELBs(context.TODO(), r)
-			allELBsResult[idx].elbs = elbs
-			allELBsResult[idx].err = err // Store error if GetIdleELBs fails
-			allELBsResult[idx].region = r
-		}(i, region)
-	}
-
-	wg.Wait()
-
-	// Calculate scan duration
-	scanDuration := time.Since(scanStartTime)
-
-	// Process results to get total count
-	var combinedELBs []models.ELBResource
-	for _, result := range allELBsResult {
-		if result.err == nil {
-			combinedELBs = append(combinedELBs, result.elbs...)
-		}
-	}
-
-	// Set completion message with scan time and resource count
-	s.FinalMSG = fmt.Sprintf("✓ [%d ELBs found] ELB resources analyzed - Completed in %.2f seconds\n",
-		len(combinedELBs), scanDuration.Seconds())
-	s.Stop() // Stop the spinner when done
-
-	// Reset slice to process errors and display results
-	combinedELBs = []models.ELBResource{}
-
-	// Process results from each region, print errors
-	for _, result := range allELBsResult {
-		if result.err != nil {
-			fmt.Printf("Error scanning ELBs in region %s: %v\n", result.region, result.err)
-			continue
-		}
-		combinedELBs = append(combinedELBs, result.elbs...)
-	}
-
-	// Display as table
-	formatter.PrintELBTable(os.Stdout, combinedELBs)
-	formatter.PrintELBSummary(os.Stdout, combinedELBs)
-}
-
-// processLogs handles the scanning of CloudWatch Log Groups, aligned with EC2 flow
-func processLogs(regions []string) {
-	fmt.Println("Starting CloudWatch Logs scan ...")
-	scanStartTime := time.Now()
-
-	s := startResourceSpinner("Logs")
-
-	// Slice to store results from all regions - Use models.LogGroupInfo type
-	var allLogGroups []models.LogGroupInfo
-	var mu sync.Mutex
-
-	errChan := make(chan error, len(regions)*2)
-
-	var wg sync.WaitGroup
-	for _, region := range regions {
-		wg.Add(1)
-		go func(r string) {
-			defer wg.Done()
-			cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(r))
-			if err != nil {
-				errChan <- fmt.Errorf("failed to load config for region %s: %w", r, err)
-				return
-			}
-
-			idleThreshold := 90
-			// ScanLogGroups already returns []models.LogGroupInfo
-			logGroups, scanErrs := aws.ScanLogGroups(cfg, idleThreshold)
-
-			if len(logGroups) > 0 {
-				mu.Lock()
-				allLogGroups = append(allLogGroups, logGroups...)
-				mu.Unlock()
-			}
-			if len(scanErrs) > 0 {
-				for _, scanErr := range scanErrs {
-					errChan <- fmt.Errorf("region %s: %w", r, scanErr)
-				}
-			}
-		}(region)
-	}
-
-	// Wait for all goroutines to complete
-	go func() {
-		wg.Wait()
-		close(errChan)
-	}()
-
-	var allErrors []string
-	for err := range errChan {
-		allErrors = append(allErrors, err.Error())
-	}
-
-	scanDuration := time.Since(scanStartTime)
-
-	s.FinalMSG = fmt.Sprintf("✓ [%d Log Groups found] Logs resources analyzed - Completed in %.2f seconds\n",
-		len(allLogGroups), scanDuration.Seconds())
-	s.Stop()
-
-	if len(allErrors) > 0 {
-		fmt.Printf("\nErrors during CloudWatch Logs scan:\n")
-		for _, errMsg := range allErrors {
-			fmt.Printf(" - %s\n", errMsg)
-		}
-		fmt.Println()
-	}
-
-	// Call the formatter function instead of the aws function
-	formatter.PrintLogGroupsTable(allLogGroups)
-}
-
-// min returns the smaller of x or y
-func min(x, y int) int {
-	if x < y {
-		return x
-	}
-	return y
 }
