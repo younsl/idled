@@ -70,7 +70,7 @@ jobs:
             Download the command line tool from the release page or use the following command:
               
             ```bash
-            curl -L https://github.com/younsl/idled/releases/download/${{ github.ref_name }}/idled-${{ matrix.goos }}-${{ matrix.goarch }} -o idled
+            curl -L https://github.com/younsl/idled/releases/download/${{ github.ref_name }}/idled-linux-$(arch) -o idled
             chmod +x idled
             ./idled --version
             ```
