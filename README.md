@@ -103,25 +103,11 @@ This tool uses the AWS SDK's default credential chain:
 2. Shared credential file (`~/.aws/credentials`)
 3. EC2 or ECS instance role
 
-## Supported Services
-
-| Service | Status    | Resource | Remarks |
-|---------|-----------|----------|---------|
-| [EC2](docs/aws/ec2.md) | ✅ Supported | Stopped EC2 instances (Default) | Detects stopped EC2 instances |
-| [EBS](docs/aws/ebs.md) | ✅ Supported | Unattached EBS volumes | Detects unattached EBS volumes |
-| [S3](docs/aws/s3.md) | ✅ Supported | Idle S3 buckets | Detects idle S3 buckets |
-| [Lambda](docs/aws/lambda.md) | ✅ Supported | Idle Lambda functions | Detects idle Lambda functions |
-| [EIP](docs/aws/eip.md) | ✅ Supported | Unattached Elastic IPs | Detects unattached Elastic IPs |
-| [IAM](docs/aws/iam.md) | ✅ Supported | Idle IAM users, roles, and policies | Detects unused IAM resources |
-| [Config](docs/aws/config.md) | ✅ Supported | Idle Config rules, recorders, and delivery channels | Detects unused Config resources |
-| [ELB](docs/aws/elb.md) | ✅ Supported | Idle ALBs and NLBs with no targets or zero traffic in the last 14 days | Detects idle ALBs and NLBs |
-| [Logs](docs/aws/logs.md) | ✅ Supported | Idle CloudWatch Log Groups | Detects idle CloudWatch Log Groups |
-
 ## Documentation
 
 For more details about idled, please refer to the following documents:
 
-- [Cost Savings Calculation](docs/cost-savings-calculation.md)
+- [Available Services](docs/available-services.md)
 - [Project Structure](docs/project-structure.md)
 
 ## Implementation Details
