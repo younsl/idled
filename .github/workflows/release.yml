@@ -1,4 +1,5 @@
 name: Release
+run-name: ✨ Release ${{ github.ref_name }} triggered by @${{ github.actor }}
 
 on:
   push:
@@ -65,7 +66,7 @@ jobs:
           files: dist/*/*
           body: |
             ## Installation
-            
+
             Download the command line tool from the release page or use the following command:
               
             ```bash
