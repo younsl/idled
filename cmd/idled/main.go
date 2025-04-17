@@ -39,6 +39,7 @@ var (
 		"iam":    true,
 		"config": true,
 		"elb":    true,
+		"logs":   true,
 	}
 )
 
@@ -52,6 +53,7 @@ var serviceDescriptions = map[string]string{
 	"iam":    "Find idle IAM users, roles, and policies",
 	"config": "Find idle AWS Config rules, recorders, and delivery channels",
 	"elb":    "Find idle Elastic Load Balancers (ALB, NLB)",
+	"logs":   "Find idle CloudWatch Log Groups",
 }
 
 // startResourceSpinner creates and starts a spinner with a message for the given service
@@ -190,6 +192,8 @@ and displays the results in a table format.`,
 					processConfig(validRegions)
 				case "elb":
 					processELB(validRegions)
+				case "logs":
+					processLogs(validRegions)
 				// Add more services here in the future
 				default:
 					// This should never happen due to earlier checks
@@ -847,6 +851,76 @@ func processELB(regions []string) {
 	// Display as table
 	formatter.PrintELBTable(os.Stdout, combinedELBs)
 	formatter.PrintELBSummary(os.Stdout, combinedELBs)
+}
+
+// processLogs handles the scanning of CloudWatch Log Groups, aligned with EC2 flow
+func processLogs(regions []string) {
+	fmt.Println("Starting CloudWatch Logs scan ...")
+	scanStartTime := time.Now()
+
+	s := startResourceSpinner("Logs")
+
+	// Slice to store results from all regions - Use models.LogGroupInfo type
+	var allLogGroups []models.LogGroupInfo
+	var mu sync.Mutex
+
+	errChan := make(chan error, len(regions)*2)
+
+	var wg sync.WaitGroup
+	for _, region := range regions {
+		wg.Add(1)
+		go func(r string) {
+			defer wg.Done()
+			cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(r))
+			if err != nil {
+				errChan <- fmt.Errorf("failed to load config for region %s: %w", r, err)
+				return
+			}
+
+			idleThreshold := 90
+			// ScanLogGroups already returns []models.LogGroupInfo
+			logGroups, scanErrs := aws.ScanLogGroups(cfg, idleThreshold)
+
+			if len(logGroups) > 0 {
+				mu.Lock()
+				allLogGroups = append(allLogGroups, logGroups...)
+				mu.Unlock()
+			}
+			if len(scanErrs) > 0 {
+				for _, scanErr := range scanErrs {
+					errChan <- fmt.Errorf("region %s: %w", r, scanErr)
+				}
+			}
+		}(region)
+	}
+
+	// Wait for all goroutines to complete
+	go func() {
+		wg.Wait()
+		close(errChan)
+	}()
+
+	var allErrors []string
+	for err := range errChan {
+		allErrors = append(allErrors, err.Error())
+	}
+
+	scanDuration := time.Since(scanStartTime)
+
+	s.FinalMSG = fmt.Sprintf("✓ [%d Log Groups found] Logs resources analyzed - Completed in %.2f seconds\n",
+		len(allLogGroups), scanDuration.Seconds())
+	s.Stop()
+
+	if len(allErrors) > 0 {
+		fmt.Printf("\nErrors during CloudWatch Logs scan:\n")
+		for _, errMsg := range allErrors {
+			fmt.Printf(" - %s\n", errMsg)
+		}
+		fmt.Println()
+	}
+
+	// Call the formatter function instead of the aws function
+	formatter.PrintLogGroupsTable(allLogGroups)
 }
 
 // min returns the smaller of x or y
