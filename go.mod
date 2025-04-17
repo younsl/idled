@@ -7,6 +7,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.13
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.30
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.44.0
+	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.47.3
 	github.com/aws/aws-sdk-go-v2/service/configservice v1.52.3
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.211.2
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.45.2
@@ -15,6 +16,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/pricing v1.34.2
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.78.0
 	github.com/briandowns/spinner v1.23.2
+	github.com/dustin/go-humanize v1.0.1
 	github.com/spf13/cobra v1.9.1
 )
 

@@ -115,6 +115,7 @@ This tool uses the AWS SDK's default credential chain:
 | [IAM](docs/aws/iam.md) | ✅ Supported | Idle IAM users, roles, and policies | Detects unused IAM resources |
 | [Config](docs/aws/config.md) | ✅ Supported | Idle Config rules, recorders, and delivery channels | Detects unused Config resources |
 | [ELB](docs/aws/elb.md) | ✅ Supported | Idle ALBs and NLBs with no targets or zero traffic in the last 14 days | Detects idle ALBs and NLBs |
+| [Logs](docs/aws/logs.md) | ✅ Supported | Idle CloudWatch Log Groups | Detects idle CloudWatch Log Groups |
 
 ## Documentation
 
