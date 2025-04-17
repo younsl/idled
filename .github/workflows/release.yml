@@ -13,7 +13,7 @@ jobs:
       contents: write
     strategy:
       matrix:
-        goos: [linux]
+        goos: [linux, darwin]
         goarch: [amd64, arm64]
     steps:
       - name: Checkout code
@@ -68,11 +68,23 @@ jobs:
             ## Installation
 
             Download the command line tool from the release page or use the following command:
+
+            <details>
+            <summary>Install idled</summary>
               
             ```bash
-            curl -L https://github.com/younsl/idled/releases/download/${{ github.ref_name }}/idled-linux-$(arch) -o idled
-            chmod +x idled
+            # Get arch and os currently running on the machine
+            ARCH=$(arch)
+            OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+
+            # Download the binary and make it executable
+            curl -L -o idled https://github.com/younsl/idled/releases/download/0.6.1/idled-${OS}-${ARCH} && \
+            chmod +x idled && \
+
+            # Run the binary
             ./idled --version
             ```
+
+            </details>
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
