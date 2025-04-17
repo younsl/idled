@@ -78,7 +78,7 @@ jobs:
             OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 
             # Download the binary and make it executable
-            curl -L -o idled https://github.com/younsl/idled/releases/download/0.6.1/idled-${OS}-${ARCH} && \
+            curl -L -o idled https://github.com/younsl/idled/releases/download/0.6.1/idled-$OS-$ARCH && \
             chmod +x idled && \
 
             # Run the binary
