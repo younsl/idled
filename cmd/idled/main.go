@@ -40,6 +40,7 @@ var (
 		"config": true,
 		"elb":    true,
 		"logs":   true,
+		"ecr":    true,
 	}
 )
 
@@ -54,6 +55,7 @@ var serviceDescriptions = map[string]string{
 	"config": "Find idle AWS Config rules, recorders, and delivery channels",
 	"elb":    "Find idle Elastic Load Balancers (ALB, NLB)",
 	"logs":   "Find idle CloudWatch Log Groups",
+	"ecr":    "Find idle ECR repositories",
 }
 
 // startResourceSpinner creates and starts a spinner with a message for the given service and regions
@@ -213,6 +215,18 @@ func processEIP(regions []string) {
 		return client.GetUnattachedEIPs()
 	}
 	processService("Elastic IP", regions, getData, formatter.PrintEIPsTable, formatter.PrintEIPsSummary)
+}
+
+// Refactor processECR function (using processService)
+func processECR(regions []string) {
+	getData := func(region string) ([]models.RepositoryInfo, error) {
+		client, err := aws.NewECRClient(region)
+		if err != nil {
+			return nil, err
+		}
+		return client.GetIdleRepositories()
+	}
+	processService("ECR", regions, getData, formatter.PrintECRTable, formatter.PrintECRSummary)
 }
 
 // processIAM handles the scanning of IAM resources
@@ -548,10 +562,10 @@ and displays the results in a table format.`,
 					processELB(validRegions)
 				case "logs":
 					processLogs(validRegions)
-				// Add more services here in the future
+				case "ecr":
+					processECR(validRegions)
 				default:
-					// This should never happen due to earlier checks
-					fmt.Printf("Skipping unsupported service: %s\n", service)
+					fmt.Printf("Service '%s' is not supported.\n", service)
 				}
 			}
 
