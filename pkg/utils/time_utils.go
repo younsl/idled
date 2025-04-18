@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
@@ -58,4 +59,60 @@ func FormatDuration(d time.Duration) string {
 	} else {
 		return time.Unix(int64(minutes*60), 0).Format("04:05")
 	}
+}
+
+// FormatTimeAgo formats a time.Time into a human-readable "time ago" string.
+func FormatTimeAgo(t time.Time) string {
+	now := time.Now()
+	diff := now.Sub(t)
+
+	days := int(diff.Hours() / 24)
+	hours := int(diff.Hours())
+	minutes := int(diff.Minutes())
+	seconds := int(diff.Seconds())
+
+	const ( // Constants for calculation
+		daysInYear  = 365
+		daysInMonth = 30
+	)
+
+	if days >= daysInYear { // More than or equal to a year
+		years := days / daysInYear
+		remainingDaysAfterYears := days % daysInYear
+		months := remainingDaysAfterYears / daysInMonth
+		remainingDays := remainingDaysAfterYears % daysInMonth
+		result := fmt.Sprintf("%dy", years)
+		if months > 0 {
+			result += fmt.Sprintf("%dm", months)
+		}
+		if remainingDays > 0 {
+			result += fmt.Sprintf("%dd", remainingDays)
+		}
+		return result + " ago"
+	} else if days >= daysInMonth { // More than or equal to a month but less than a year
+		months := days / daysInMonth
+		remainingDays := days % daysInMonth
+		result := fmt.Sprintf("%dm", months)
+		if remainingDays > 0 {
+			result += fmt.Sprintf("%dd", remainingDays)
+		}
+		return result + " ago"
+	} else if days > 1 {
+		return fmt.Sprintf("%dd ago", days)
+	} else if days == 1 {
+		return "1d ago"
+	} else if hours > 1 {
+		return fmt.Sprintf("%dh ago", hours)
+	} else if hours == 1 {
+		return "1h ago"
+	} else if minutes > 1 {
+		return fmt.Sprintf("%dm ago", minutes)
+	} else if minutes == 1 {
+		return "1m ago"
+	} else if seconds > 1 {
+		return fmt.Sprintf("%ds ago", seconds)
+	} else if seconds == 1 {
+		return "1s ago"
+	}
+	return "now"
 }
