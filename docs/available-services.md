@@ -20,6 +20,7 @@ The following AWS services are currently supported by `idled`:
 | [Config](./aws/config.md) | ✅ Supported | Idle Config rules, recorders, and delivery channels | Detects unused Config resources |
 | [ELB](./aws/elb.md) | ✅ Supported | Idle ALBs and NLBs with no targets or zero traffic in the last 14 days | Detects idle ALBs and NLBs |
 | [Logs](./aws/logs.md) | ✅ Supported | Idle CloudWatch Log Groups | Detects idle CloudWatch Log Groups |
+| [ECR](./aws/ecr.md) | ✅ Supported | Idle ECR repositories | Detects idle ECR repositories |
 
 ## Command Usage
 
