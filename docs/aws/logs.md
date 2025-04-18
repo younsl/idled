@@ -10,6 +10,10 @@
 
 ## Scan Rationale
 
+| Provider | Regional / Global | Category      |
+|----------|-------------------|---------------|
+| AWS      | Regional          | Observability |
+
 CloudWatch Log Groups can accumulate significant amounts of log data over time, leading to increased storage costs. Log groups that haven't received new log events for an extended period might indicate unused applications, inactive resources, or leftover logging configurations. Identifying these idle log groups helps in cleaning up unnecessary resources and potentially reducing AWS costs associated with log storage and management.
 
 ## Scan Criteria
