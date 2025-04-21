@@ -28,11 +28,10 @@ jobs:
 
       - name: Build artifact (${{ matrix.goos }}/${{ matrix.goarch }})
         run: |
-          echo "Building artifact for ${{ matrix.goos }}/${{ matrix.goarch }}..."
+          echo "Building artifact for ${{ matrix.goos }}/${{ matrix.goarch }} ..."
           export GOOS=${{ matrix.goos }}
           export GOARCH=${{ matrix.goarch }}
-          BINARY_NAME="idled-${GOOS}-${GOARCH}"
-          go build -o "./bin/${BINARY_NAME}" ./cmd/idled
+          make build
         env:
           CGO_ENABLED: 0
 
