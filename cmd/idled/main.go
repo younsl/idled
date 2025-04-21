@@ -21,8 +21,8 @@ import (
 
 // Version information
 const (
-	Version        = "0.7.0"
-	BuildDate      = "2025-04-20"
+	Version        = "0.7.1"
+	BuildDate      = "2025-04-21"
 	DefaultService = "ec2"
 )
 
