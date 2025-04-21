@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -165,12 +166,12 @@ func (c *LambdaClient) analyzeFunction(function lambdaTypes.FunctionConfiguratio
 	}
 
 	// Get CloudWatch metrics for invocations
-	invocations, errors, lastInvocation, duration, err := c.getFunctionMetrics(functionName)
+	invocations, errorCount, lastInvocation, duration, err := c.getFunctionMetrics(functionName)
 	if err != nil {
 		// Just continue with what we have - this is non-critical
 	} else {
 		functionInfo.InvocationsLast30Days = invocations
-		functionInfo.ErrorsLast30Days = errors
+		functionInfo.ErrorsLast30Days = errorCount
 		functionInfo.LastInvocation = lastInvocation
 		functionInfo.DurationP95Last30Days = duration
 
@@ -179,6 +180,34 @@ func (c *LambdaClient) analyzeFunction(function lambdaTypes.FunctionConfiguratio
 			functionInfo.IdleDays = utils.CalculateElapsedDays(*lastInvocation)
 		}
 	}
+
+	// Check for triggers
+	hasEventSourceMapping := false
+	listMappingsInput := &lambda.ListEventSourceMappingsInput{
+		FunctionName: aws.String(functionName),
+	}
+	mappingsResult, err := c.client.ListEventSourceMappings(context.TODO(), listMappingsInput)
+	if err == nil && len(mappingsResult.EventSourceMappings) > 0 {
+		hasEventSourceMapping = true
+	}
+
+	hasPolicy := false
+	getPolicyInput := &lambda.GetPolicyInput{
+		FunctionName: aws.String(functionName),
+	}
+	_, err = c.client.GetPolicy(context.TODO(), getPolicyInput)
+	if err == nil {
+		hasPolicy = true
+	} else {
+		var resourceNotFoundException *lambdaTypes.ResourceNotFoundException
+		if !errors.As(err, &resourceNotFoundException) {
+			// Log non-'ResourceNotFoundException' errors, but don't block
+			// fmt.Fprintf(os.Stderr, "Warning: Error getting policy for %s: %v\n", functionName, err)
+		}
+		// If it's ResourceNotFoundException, hasPolicy remains false, which is correct
+	}
+
+	functionInfo.HasTrigger = hasEventSourceMapping || hasPolicy
 
 	// Calculate estimated monthly cost
 	functionInfo.EstimatedMonthlyCost = calculateLambdaCost(functionInfo)

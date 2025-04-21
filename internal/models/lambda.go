@@ -18,4 +18,5 @@ type LambdaFunctionInfo struct {
 	IsIdle                bool       // Whether the function is considered idle
 	IdleDays              int        // Days since last invocation
 	EstimatedMonthlyCost  float64    // Estimated monthly cost
+	HasTrigger            bool       // Whether the function has any triggers configured
 }
