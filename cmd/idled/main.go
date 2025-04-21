@@ -13,6 +13,7 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/spf13/cobra"
 	"github.com/younsl/idled/internal/models"
+	"github.com/younsl/idled/internal/version"
 	"github.com/younsl/idled/pkg/aws"
 	"github.com/younsl/idled/pkg/formatter"
 	"github.com/younsl/idled/pkg/pricing"
@@ -444,7 +445,9 @@ and displays the results in a table format.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			// If version flag is set, print version info and exit
 			if showVersion {
-				fmt.Printf("idled version %s (built: %s)\n", Version, BuildDate)
+				info := version.Get() // Call Get() to retrieve build info
+				fmt.Printf("idled version %s (BuildDate: %s, GitCommit: %s, GoVersion: %s)\n",
+					info.Version, info.BuildDate, info.GitCommit, info.GoVersion)
 				return
 			}
 
