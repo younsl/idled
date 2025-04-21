@@ -31,7 +31,7 @@ func PrintLambdaTable(functions []models.LambdaFunctionInfo, scanTime time.Time,
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, ' ', 0)
 
 	// Print header
-	fmt.Fprintln(w, "FUNCTION\tRUNTIME\tMEMORY\tREGION\tLAST INVOCATION\tIDLE DAYS\tCOST/MO\tSTATUS")
+	fmt.Fprintln(w, "FUNCTION\tRUNTIME\tMEMORY\tREGION\tTRIGGER\tLAST INVOKE\tIDLE DAYS\tCOST/MO\tSTATUS")
 
 	// Loop through each function
 	for _, function := range functions {
@@ -59,12 +59,19 @@ func PrintLambdaTable(functions []models.LambdaFunctionInfo, scanTime time.Time,
 			status = "Idle"
 		}
 
+		// Format trigger status
+		triggerStatus := "No"
+		if function.HasTrigger {
+			triggerStatus = "Yes"
+		}
+
 		// Format and print the row
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			truncateString(function.FunctionName, 50),
 			function.Runtime,
 			memorySize,
 			function.Region,
+			triggerStatus,
 			lastInvocation,
 			idleDays,
 			cost,
