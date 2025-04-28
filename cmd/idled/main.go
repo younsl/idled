@@ -42,6 +42,7 @@ var (
 		"elb":    true,
 		"logs":   true,
 		"ecr":    true,
+		"msk":    true,
 	}
 )
 
@@ -57,6 +58,7 @@ var serviceDescriptions = map[string]string{
 	"elb":    "Find idle Elastic Load Balancers (ALB, NLB)",
 	"logs":   "Find idle CloudWatch Log Groups",
 	"ecr":    "Find idle ECR repositories",
+	"msk":    "Find idle MSK clusters",
 }
 
 // startResourceSpinner creates and starts a spinner with a message for the given service and regions
@@ -133,13 +135,14 @@ func handleErrors(errChan <-chan error) []string {
 func processService[T any](
 	serviceName string, // Service name (for spinner message)
 	regions []string, // List of regions to scan
-	getDataForRegion func(region string) ([]T, error), // Function to get data for a specific region
+	getDataForRegion func(region string) ([]T, []error), // Function to get data and errors for a region
 	printTable func([]T, time.Time, time.Duration), // Function to print results as a table
 	printSummary func([]T), // Function to print result summary
 ) {
 	scanStartTime, s := startScan(serviceName, regions)
 	results := make([]ScanResult[T], len(regions))
 	var wg sync.WaitGroup
+	errChan := make(chan error, len(regions)*2) // Channel for collecting errors from goroutines
 
 	for i, region := range regions {
 		wg.Add(1)
@@ -147,85 +150,163 @@ func processService[T any](
 			defer wg.Done()
 			results[idx].Region = r
 			// Execute service-specific data fetching logic
-			data, err := getDataForRegion(r)
+			data, scanErrs := getDataForRegion(r)
 			results[idx].Data = data
-			results[idx].Err = err
+			if len(scanErrs) > 0 {
+				// Send all errors from the scan to the error channel
+				for _, scanErr := range scanErrs {
+					errChan <- fmt.Errorf("region %s: %w", r, scanErr) // Add region context
+				}
+			}
+			// Note: processResults will handle the main error if getDataForRegion returns one
+			// Here we primarily collect errors *during* the scan (like for individual resources)
 		}(i, region)
 	}
 
-	wg.Wait()
-	// Call common result processing function
-	processResults(results, scanStartTime, s, printTable, printSummary)
+	go func() {
+		wg.Wait()
+		close(errChan) // Close channel once all goroutines are done
+	}()
+
+	// Collect all errors from the channel
+	allErrors := handleErrors(errChan)
+
+	// Call common result processing function (adjust signature if needed)
+	processResultsAndErrors(results, scanStartTime, s, printTable, printSummary, allErrors)
+}
+
+// Adjusted processResults to handle collected errors
+func processResultsAndErrors[T any](results []ScanResult[T], scanStartTime time.Time, s *spinner.Spinner, printTable func([]T, time.Time, time.Duration), printSummary func([]T), collectedErrors []string) {
+	scanDuration := time.Since(scanStartTime)
+	var allData []T
+	// Combine results even if there were partial errors
+	for _, result := range results {
+		if result.Data != nil { // Check if data slice is not nil
+			allData = append(allData, result.Data...)
+		}
+		// Main error from getDataForRegion itself (e.g., config load failure) is handled below
+		if result.Err != nil {
+			collectedErrors = append(collectedErrors, fmt.Sprintf("Error in region %s: %v", result.Region, result.Err)) // Append main error
+		}
+	}
+
+	// Update spinner message
+	s.FinalMSG = fmt.Sprintf("✓ [%d items found] %s resources analyzed - Completed in %.2f seconds\n",
+		len(allData), s.Prefix, scanDuration.Seconds())
+	s.Stop()
+
+	// Display API init message if any
+	if msg := pricing.GetInitMessage(); msg != "" {
+		fmt.Println(msg)
+	}
+
+	// Print collected errors first
+	if len(collectedErrors) > 0 {
+		fmt.Printf("\nEncountered %d error(s) during scan:\n", len(collectedErrors))
+		for _, errMsg := range collectedErrors {
+			fmt.Printf(" - %s\n", errMsg)
+		}
+		fmt.Println()
+	}
+
+	// Print table and summary with potentially partial results
+	printTable(allData, scanStartTime, scanDuration)
+	printSummary(allData)
 }
 
 // Refactor processEC2 function (using processService)
 func processEC2(regions []string) {
-	getData := func(region string) ([]models.InstanceInfo, error) {
+	getData := func(region string) ([]models.InstanceInfo, []error) { // Return []error
 		client, err := aws.NewEC2Client(region)
 		if err != nil {
-			return nil, err
+			return nil, []error{err} // Return config error as a slice
 		}
-		return client.GetStoppedInstances()
+		// Assuming GetStoppedInstances returns ([]models.InstanceInfo, error)
+		instances, err := client.GetStoppedInstances()
+		if err != nil {
+			return instances, []error{err} // Return scan error as slice (allow partial results)
+		}
+		return instances, nil // No error
 	}
 	processService("EC2", regions, getData, formatter.PrintInstancesTable, formatter.PrintInstancesSummary)
 }
 
 // Refactor processEBS function (using processService)
 func processEBS(regions []string) {
-	getData := func(region string) ([]models.VolumeInfo, error) {
+	getData := func(region string) ([]models.VolumeInfo, []error) { // Return []error
 		client, err := aws.NewEBSClient(region)
 		if err != nil {
-			return nil, err
+			return nil, []error{err}
 		}
-		return client.GetAvailableVolumes()
+		volumes, err := client.GetAvailableVolumes()
+		if err != nil {
+			return volumes, []error{err}
+		}
+		return volumes, nil
 	}
 	processService("EBS", regions, getData, formatter.PrintVolumesTable, formatter.PrintVolumesSummary)
 }
 
 // Refactor processS3 function (using processService)
 func processS3(regions []string) {
-	getData := func(region string) ([]models.BucketInfo, error) {
+	getData := func(region string) ([]models.BucketInfo, []error) { // Return []error
 		client, err := aws.NewS3Client(region)
 		if err != nil {
-			return nil, err
+			return nil, []error{err}
 		}
-		return client.GetIdleBuckets()
+		buckets, err := client.GetIdleBuckets()
+		if err != nil {
+			return buckets, []error{err}
+		}
+		return buckets, nil
 	}
 	processService("S3", regions, getData, formatter.PrintBucketsTable, formatter.PrintBucketsSummary)
 }
 
 // Refactor processLambda function (using processService)
 func processLambda(regions []string) {
-	getData := func(region string) ([]models.LambdaFunctionInfo, error) {
+	getData := func(region string) ([]models.LambdaFunctionInfo, []error) { // Return []error
 		client, err := aws.NewLambdaClient(region)
 		if err != nil {
-			return nil, err
+			return nil, []error{err}
 		}
-		return client.GetIdleFunctions()
+		functions, err := client.GetIdleFunctions()
+		if err != nil {
+			return functions, []error{err}
+		}
+		return functions, nil
 	}
 	processService("Lambda", regions, getData, formatter.PrintLambdaTable, formatter.PrintLambdaSummary)
 }
 
 // Refactor processEIP function (using processService)
 func processEIP(regions []string) {
-	getData := func(region string) ([]models.EIPInfo, error) {
+	getData := func(region string) ([]models.EIPInfo, []error) { // Return []error
 		client, err := aws.NewEIPClient(region)
 		if err != nil {
-			return nil, err
+			return nil, []error{err}
 		}
-		return client.GetUnattachedEIPs()
+		eips, err := client.GetUnattachedEIPs()
+		if err != nil {
+			return eips, []error{err}
+		}
+		return eips, nil
 	}
 	processService("Elastic IP", regions, getData, formatter.PrintEIPsTable, formatter.PrintEIPsSummary)
 }
 
 // Refactor processECR function (using processService)
 func processECR(regions []string) {
-	getData := func(region string) ([]models.RepositoryInfo, error) {
+	getData := func(region string) ([]models.RepositoryInfo, []error) { // Return []error
 		client, err := aws.NewECRClient(region)
 		if err != nil {
-			return nil, err
+			return nil, []error{err}
 		}
-		return client.GetIdleRepositories()
+		repos, err := client.GetIdleRepositories()
+		if err != nil {
+			return repos, []error{err}
+		}
+		return repos, nil
 	}
 	processService("ECR", regions, getData, formatter.PrintECRTable, formatter.PrintECRSummary)
 }
@@ -359,13 +440,17 @@ func processConfig(regions []string) {
 
 // Refactor processELB function (using processService)
 func processELB(regions []string) {
-	getData := func(region string) ([]models.ELBResource, error) {
+	getData := func(region string) ([]models.ELBResource, []error) { // Return []error
 		cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
 		if err != nil {
-			return nil, fmt.Errorf("failed to load AWS config for region %s: %w", region, err)
+			return nil, []error{fmt.Errorf("failed to load AWS config for region %s: %w", region, err)}
 		}
 		scanner := aws.NewELBScanner(cfg)
-		return scanner.GetIdleELBs(context.TODO(), region)
+		elbs, err := scanner.GetIdleELBs(context.TODO(), region) // Assume GetIdleELBs returns ([]T, error)
+		if err != nil {
+			return elbs, []error{err}
+		}
+		return elbs, nil
 	}
 	// PrintELBTable, PrintELBSummary need os.Stdout -> use anonymous functions
 	printTable := func(data []models.ELBResource, _ time.Time, _ time.Duration) {
@@ -424,6 +509,21 @@ func processLogs(regions []string) {
 		fmt.Println()
 	}
 	formatter.PrintLogGroupsTable(allLogGroups)
+}
+
+// processMsk handles the scanning of MSK clusters, using the generic processService
+func processMsk(regions []string) {
+	getData := func(region string) ([]models.MskClusterInfo, []error) { // Match signature
+		cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
+		if err != nil {
+			return nil, []error{fmt.Errorf("failed to load config: %w", err)} // Return config error
+		}
+		scanner := aws.NewMskScanner(cfg)
+		// GetIdleMskClusters now returns data and scan errors
+		clusters, scanErrs := scanner.GetIdleMskClusters(context.TODO())
+		return clusters, scanErrs // Pass both back
+	}
+	processService("MSK", regions, getData, formatter.PrintMskTable, formatter.PrintMskSummary)
 }
 
 // min returns the smaller of x or y
@@ -567,6 +667,8 @@ and displays the results in a table format.`,
 					processLogs(validRegions)
 				case "ecr":
 					processECR(validRegions)
+				case "msk":
+					processMsk(validRegions)
 				default:
 					fmt.Printf("Service '%s' is not supported.\n", service)
 				}
