@@ -16,8 +16,8 @@ idled stands for "idle finder". idled is a CLI tool that finds idle AWS resource
 - Provide summary statistics by idle time
 - Follows the Golang Standard Project Layout
 - Scan multiple AWS regions in parallel
-- Identify stopped EC2 instances, unattached EBS volumes, and idle S3 buckets
-- Display resource details (ID, type, region, stop time, etc.)
+- Identify stopped EC2 instances, unattached EBS volumes, idle S3 buckets, idle MSK clusters, and more
+- Display resource details (ID, type, region, idle time, etc.)
 - Sort resources by idle time or potential savings
 - Calculate estimated cost savings using real-time pricing data
 - Display total estimated cost savings across all resources
@@ -84,9 +84,18 @@ idled --services ec2,ebs
 idled --services s3
 idled --services lambda
 idled --services iam
+idled --services msk
 idled --services config
 idled --services ec2,ebs,s3,lambda,iam,config
 ```
+
+When scanning for MSK clusters (`--services msk`), `idled` will:
+- List all MSK clusters in the specified regions.
+- Check each cluster's connection count and average CPU utilization (System + User) over the last 30 days.
+- Identify clusters as idle/underutilized based on:
+    - **No Connections:** Maximum `ConnectionCount` is 0.
+    - **Low CPU Usage:** Average combined CPU (System + User) is below 30%.
+- Display results including Cluster Name, ARN, Region, State, Instance Type, Creation Time, Idle Status (`IS IDLE`), and the Reason for being flagged (`REASON`).
 
 Check CLI version:
 
