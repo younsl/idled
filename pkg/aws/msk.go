@@ -12,7 +12,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kafka/types"
 
 	// kafkaconnecttypes "github.com/aws/aws-sdk-go-v2/service/kafkaconnect/types" // State type might be directly in kafka types
-	"github.com/briandowns/spinner"
 	"github.com/younsl/idled/internal/models"
 	// Alias for pkg utils
 )
@@ -49,11 +48,6 @@ func NewMskScanner(cfg aws.Config) *MskScanner {
 
 // GetIdleMskClusters scans all MSK clusters and identifies idle/underutilized ones
 func (s *MskScanner) GetIdleMskClusters(ctx context.Context) ([]models.MskClusterInfo, []error) {
-	// Initial spinner for listing clusters
-	sp := spinner.New(spinner.CharSets[9], 100*time.Millisecond)
-	sp.Prefix = fmt.Sprintf("Scanning MSK clusters in %s ", s.Region)
-	sp.Start()
-
 	var allClusters []models.MskClusterInfo
 	var clusterArns []string
 	var scanErrs []error
@@ -66,7 +60,8 @@ func (s *MskScanner) GetIdleMskClusters(ctx context.Context) ([]models.MskCluste
 		pageCount++
 		listOutput, err := listPaginator.NextPage(ctx)
 		if err != nil {
-			sp.FinalMSG = fmt.Sprintf("✗ Error listing MSK clusters page %d in %s\n", pageCount, s.Region)
+			// Error message is handled by the main error processing logic
+			// sp.FinalMSG = fmt.Sprintf("✗ Error listing MSK clusters page %d in %s\n", pageCount, s.Region)
 			scanErrs = append(scanErrs, fmt.Errorf("error listing MSK clusters page %d: %w", pageCount, err))
 			break // Stop processing this region on pagination error
 		}
@@ -84,11 +79,10 @@ func (s *MskScanner) GetIdleMskClusters(ctx context.Context) ([]models.MskCluste
 			}
 		}
 	}
-	sp.Stop()                                                                 // Stop the first spinner
-	fmt.Printf("✓ Found %d MSK clusters in %s\n", len(clusterArns), s.Region) // Print result of listing
 
 	if len(clusterArns) == 0 {
-		// sp.FinalMSG = fmt.Sprintf("✓ No MSK clusters found in %s\n", s.Region) // Already printed
+		// No need for specific message here, main handler reports 0 items found.
+		// sp.FinalMSG = fmt.Sprintf("✓ No MSK clusters found in %s\n", s.Region)
 		return allClusters, scanErrs
 	}
 
@@ -150,17 +144,11 @@ func (s *MskScanner) GetIdleMskClusters(ctx context.Context) ([]models.MskCluste
 		}
 	}
 
-	// 3. Check idle/underutilized status for all successfully described clusters
-	// Start a new spinner message for checking status
-	sp.Prefix = fmt.Sprintf("Checking idle status for %d clusters in %s ", len(clusterDetails), s.Region)
-	sp.Start() // Restart spinner with new message
-
-	totalClusters := len(clusterDetails)
 	processedCount := 0
 	for arn, details := range clusterDetails {
 		processedCount++
 		// Update suffix for progress
-		sp.Suffix = fmt.Sprintf(" (%d/%d)", processedCount, totalClusters)
+		// sp.Suffix = fmt.Sprintf(" (%d/%d)", processedCount, totalClusters)
 
 		creationTime := aws.ToTime(details.CreationTime)
 		state := details.State
@@ -216,18 +204,7 @@ func (s *MskScanner) GetIdleMskClusters(ctx context.Context) ([]models.MskCluste
 		})
 	}
 
-	// Final spinner message after checking all clusters
-	idleCount := 0
-	for _, c := range allClusters {
-		if c.IsIdle {
-			idleCount++
-		}
-	}
-	// Set the final message before stopping
-	sp.FinalMSG = fmt.Sprintf("✓ [%d Idle/Underutilized found out of %d scanned] MSK clusters analyzed in %s\n", idleCount, len(allClusters), s.Region)
-	sp.Stop() // Stop the second spinner phase
-
-	return allClusters, scanErrs // Return all clusters and any scan errors
+	return allClusters, scanErrs // Return results and any errors encountered during the scan
 }
 
 // getMaxConnectionCount retrieves the maximum connection count across all brokers
@@ -306,14 +283,10 @@ func (s *MskScanner) getAvgCPUUtilization(ctx context.Context, clusterName strin
 			foundData = true
 			totalCPU += (*avgSystem + *avgUser)
 			cpuCount++
-		} else if errSys == nil && errUser == nil {
-			// No error, but data was nil (no datapoints found for this broker)
-			// We can choose to ignore this broker for the average or treat as 0?
-			// Let's ignore it for the average calculation to avoid skewing.
-		} else {
-			// An error occurred for at least one metric for this broker
-			// Error already added to errs list.
 		}
+		// If either metric is nil, or if errors occurred (errSys or errUser != nil),
+		// we simply don't update totalCPU or cpuCount for this broker.
+		// Errors were already appended to the errs slice earlier.
 	}
 
 	if !foundData {
