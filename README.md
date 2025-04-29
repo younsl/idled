@@ -86,6 +86,7 @@ idled --services lambda
 idled --services iam
 idled --services msk
 idled --services config
+idled --services secretsmanager
 idled --services ec2,ebs,s3,lambda,iam,config
 ```
 
