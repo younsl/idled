@@ -144,11 +144,6 @@ func (s *MskScanner) GetIdleMskClusters(ctx context.Context) ([]models.MskCluste
 		}
 	}
 
-	// 3. Check idle/underutilized status for all successfully described clusters
-	// Start a new spinner message for checking status
-	// sp.Prefix = fmt.Sprintf("Checking idle status for %d clusters in %s ", len(clusterDetails), s.Region)
-	// sp.Start() // REMOVED
-
 	processedCount := 0
 	for arn, details := range clusterDetails {
 		processedCount++
@@ -208,17 +203,6 @@ func (s *MskScanner) GetIdleMskClusters(ctx context.Context) ([]models.MskCluste
 			AvgCPUUtilization: avgCPU,
 		})
 	}
-
-	// Final spinner message after checking all clusters
-	// idleCount := 0
-	// for _, c := range allClusters {
-	// 	if c.IsIdle {
-	// 		idleCount++
-	// 	}
-	// }
-	// Set the final message before stopping
-	// sp.FinalMSG = fmt.Sprintf("✓ [%d Idle/Underutilized found out of %d scanned] MSK clusters analyzed in %s\n", idleCount, len(allClusters), s.Region)
-	// sp.Stop() // REMOVED
 
 	return allClusters, scanErrs // Return results and any errors encountered during the scan
 }
@@ -299,14 +283,10 @@ func (s *MskScanner) getAvgCPUUtilization(ctx context.Context, clusterName strin
 			foundData = true
 			totalCPU += (*avgSystem + *avgUser)
 			cpuCount++
-		} else if errSys == nil && errUser == nil {
-			// No error, but data was nil (no datapoints found for this broker)
-			// We can choose to ignore this broker for the average or treat as 0?
-			// Let's ignore it for the average calculation to avoid skewing.
-		} else {
-			// An error occurred for at least one metric for this broker
-			// Error already added to errs list.
 		}
+		// If either metric is nil, or if errors occurred (errSys or errUser != nil),
+		// we simply don't update totalCPU or cpuCount for this broker.
+		// Errors were already appended to the errs slice earlier.
 	}
 
 	if !foundData {
