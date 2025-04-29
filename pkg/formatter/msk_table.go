@@ -31,8 +31,8 @@ func PrintMskTable(clusters []models.MskClusterInfo, scanStartTime time.Time, sc
 	// Setup tabwriter for kubernetes style tables
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, ' ', 0)
 
-	// Print header - remove Idle Days, add Instance Type
-	fmt.Fprintln(w, "CLUSTER NAME\tARN\tREGION\tSTATE\tINSTANCE TYPE\tCREATION TIME\tIS IDLE\tREASON\tMAX CONN (30d)\tAVG CPU (30d %)")
+	// Print header - move IDLE and REASON to the end
+	fmt.Fprintln(w, "CLUSTER NAME\tARN\tREGION\tSTATE\tINSTANCE TYPE\tCREATION TIME\tMAX CONN (30d)\tAVG CPU (30d %)\tIDLE\tREASON")
 
 	// Print table rows
 	for _, cluster := range clusters {
@@ -48,17 +48,17 @@ func PrintMskTable(clusters []models.MskClusterInfo, scanStartTime time.Time, sc
 		// Truncate ARN if necessary (using the function from this package)
 		truncatedARN := truncateString(cluster.ARN, 50)
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%t\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%t\t%s\n",
 			cluster.ClusterName,
 			truncatedARN,
 			cluster.Region,
 			cluster.State,
-			cluster.InstanceType, // Add Instance Type
+			cluster.InstanceType,
 			cluster.CreationTime.Format("2006-01-02"),
-			cluster.IsIdle,
-			cluster.Reason,
 			connCountStr,
 			cpuUtilStr,
+			cluster.IsIdle,
+			cluster.Reason,
 		)
 	}
 
