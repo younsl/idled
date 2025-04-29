@@ -22,6 +22,7 @@ The following AWS services are currently supported by `idled`:
 | [Logs](./aws/logs.md) | ✅ Supported | Idle CloudWatch Log Groups | Detects idle CloudWatch Log Groups |
 | [ECR](./aws/ecr.md) | ✅ Supported | Idle ECR repositories | Detects idle ECR repositories |
 | [MSK](./aws/msk.md) | ✅ Supported | Idle/Underutilized MSK clusters | Detects MSK clusters with no connections or low average CPU usage (below 30%) over the last 30 days |
+| [SecretsManager](./aws/secretsmanager.md) | ✅ Supported | Idle Secrets Manager secrets | Detects secrets not accessed in the last 90 days |
 
 ## Command Usage
 
