@@ -1,8 +1,8 @@
 # idled
 
+[![Go Version](https://img.shields.io/badge/Go-1.24-blue?style=flat-square&color=black&logo=go&logoColor=white)](https://golang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square&color=black)](LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/younsl/idled?style=flat-square&color=black&logo=github&logoColor=white&label=release)](https://github.com/younsl/idled/releases)
-
-<img src="https://github.com/younsl/box/blob/main/box/assets/pink-container-84x84.png" alt="pink container logo" width="84" height="84">
 
 idled stands for "idle finder". idled is a CLI tool that finds idle AWS resources across regions and shows the results in a table format.
 
